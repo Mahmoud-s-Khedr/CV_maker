@@ -52,37 +52,44 @@ docker-compose up -d --build
 
 To expose the app and the API over HTTPS, use Nginx as a reverse proxy:
 
-1.  **Create Nginx Config**:
-    `sudo nano /etc/nginx/sites-available/cvmaker`
+1.  **Copy Nginx Config Template**:
+    ```bash
+    sudo cp /var/www/cvmaker/nginx/cvmaker.conf /etc/nginx/sites-available/cvmaker
+    sudo nano /etc/nginx/sites-available/cvmaker
+    ```
 
-```nginx
-server {
-    listen 80;
-    server_name yourdomain.com;
-
-    # Frontend
-    location / {
-        proxy_pass http://localhost:80;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    # API Backend
-    location /api {
-        proxy_pass http://localhost:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+    **Replace `yourdomain.com` with your actual domain**. The config includes:
+    - HTTP to HTTPS redirect
+    - Reverse proxy for frontend (port 4001) at `/`
+    - Reverse proxy for backend (port 4000) at `/api`
+    - SSL/TLS configuration with security headers
+    - Gzip compression
+    - Proper proxy headers (X-Forwarded-*, etc.)
 
 2.  **Enable Site and Get SSL**:
-```bash
-sudo ln -s /etc/nginx/sites-available/cvmaker /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-sudo certbot --nginx -d yourdomain.com
-```
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/cvmaker /etc/nginx/sites-enabled/
+    sudo nginx -t
+    sudo systemctl restart nginx
+    sudo certbot --nginx -d yourdomain.com
+    ```
+
+    Certbot will automatically:
+    - Obtain a Let's Encrypt SSL certificate
+    - Configure HTTPS on port 443
+    - Update the Nginx config with SSL paths
+    - Set up auto-renewal
+
+3.  **Verify SSL (optional)**:
+    ```bash
+    sudo certbot certificates
+    ```
+
+4.  **Set up Auto-renewal** (usually automatic with Certbot):
+    ```bash
+    sudo systemctl enable certbot.timer
+    sudo systemctl start certbot.timer
+    ```
 
 ## 5. Maintenance
 
@@ -95,8 +102,41 @@ sudo certbot --nginx -d yourdomain.com
 
 ---
 
-### Troubleshooting Google Auth on VPS
+## Troubleshooting
+
+### Google Auth on VPS
 Ensure your domain (`https://yourdomain.com`) is added to:
 1.  **Authorized JavaScript origins** in Google Cloud Console.
 2.  **Authorized redirect URIs** in Google Cloud Console.
 3.  **CORS_ORIGINS** in your `.env` file.
+
+### Nginx Issues
+
+**Nginx syntax error**:
+```bash
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+```
+
+**Port conflicts** (if ports 80/443 already in use):
+- Stop other services: `sudo lsof -i :80` and `sudo lsof -i :443`
+- Check Docker container ports: `docker-compose ps`
+
+**SSL certificate errors**:
+```bash
+sudo certbot renew --dry-run  # Test renewal
+sudo certbot certificates     # Check certificate status
+```
+
+**Docker container connectivity**:
+```bash
+docker-compose logs server   # View backend logs
+docker-compose logs client   # View frontend logs
+docker exec -it <container_id> /bin/sh  # Access container shell
+```
+
+**Check Nginx logs**:
+```bash
+sudo tail -f /var/log/nginx/cvmaker_access.log
+sudo tail -f /var/log/nginx/cvmaker_error.log
+```
