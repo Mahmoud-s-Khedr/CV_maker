@@ -1,78 +1,102 @@
-# Deployment Guide
+# VPS Deployment Guide (Docker)
 
-## 1. Prerequisites
-- **GitHub Repository**: Push your code to a GitHub repository.
-- **Accounts**:
-  - [Vercel](https://vercel.com) (Frontend)
-  - [Render](https://render.com) or [Railway](https://railway.app) (Backend & Database)
-  - [Google Cloud Console](https://console.cloud.google.com) (Auth)
-  - [Paymob](https://paymob.com) (Payments)
+This guide explains how to deploy the **CV Maker** stack on a single Virtual Private Server (VPS) using Docker Compose and Nginx.
 
-## 2. Backend Deployment (Render.com)
+## 1. Server Preparation
 
-1.  **Create a PostgreSQL Database** on Render.
-    - Copy the `Internal Database URL`.
-2.  **Create a Web Service** on Render.
-    - **Repo**: Connect your GitHub repo.
-    - **Root Directory**: `server`
-    - **Build Command**: `npm install && npx prisma generate && npm run build`
-    - **Start Command**: `npm start`
-    - **Environment Variables**:
-        - `DATABASE_URL`: (Paste your Render Connection String)
-        - `PORT`: `4000`
-        - `JWT_SECRET`: (Generate a strong random string)
-        - `GOOGLE_CLIENT_ID`: (From Google Cloud)
-        - `RESEND_API_KEY`: (From Resend Dashboard)
-        - `FROM_EMAIL`: (Your verified sender email, e.g., `noreply@yourdomain.com`)
-        - `APP_URL`: (Your frontend URL, e.g., `https://cvmaker.vercel.app`)
-        - `PAYMOB_API_KEY`: (From Paymob)
-        - `PAYMOB_INTEGRATION_ID`: (From Paymob)
-        - `PAYMOB_FRAME_ID`: (From Paymob)
-        - `OPENROUTER_API_KEY`: (From OpenRouter)
+Connect to your VPS and install the necessary dependencies:
 
-## 3. Frontend Deployment (Vercel)
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-1.  **Import Project** on Vercel.
-2.  **Root Directory**: `client`
-    - Vercel automatically detects Vite.
-3.  **Environment Variables**:
-    - `VITE_GOOGLE_CLIENT_ID`: (Same as backend)
-4.  **Deploy**.
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
 
-## 4. Post-Deployment Configuration
+# Install Nginx & Certbot (for SSL)
+sudo apt install nginx certbot python3-certbot-nginx -y
+```
 
-1.  **Update Client URL in Backend**:
-    - If you add CORS, whitelist your Vercel domain in `server/src/app.ts`.
-2.  **Update API URL in Frontend**:
-    - In `client/src/lib/api.ts`, change `API_URL` to your Render backend URL (e.g., `https://cv-maker-api.onrender.com/api`).
-    - *Pro Tip*: Use `import.meta.env.VITE_API_URL` in checking production.
+## 2. Project Setup
 
-## 5. Paymob Callbacks
-- In Paymob Dashboard > Integration Settings, set the **Transaction Processed Callback** to:
-  `https://your-backend-url.onrender.com/api/payment/webhook`
-
-## 6. Google Auth Redirects
-- In Google Cloud Console, add your Vercel URL to **Authorized JavaScript origins**.
-
-## 7. Local Docker Deployment (Testing)
-
-You can run the entire stack locally using Docker Compose, simulating a production environment.
-
-1.  **Create `.env` file** in the root directory (or use `.env` in `docker-compose.yml` directly if you prefer).
-    - Ensure variables like `GOOGLE_CLIENT_ID`, `PAYMOB_API_KEY` etc. are set in your shell or `.env`.
-
-2.  **Run Docker Compose**:
+1.  **Clone the repository**:
     ```bash
-    docker-compose up --build
+    git clone <your-repo-url> /var/www/cvmaker
+    cd /var/www/cvmaker
     ```
 
-3.  **Access Application**:
-    - Frontend: `http://localhost`
-    - Backend: `http://localhost:4000`
-    - Database: `postgres://user:password@localhost:5432/cvmaker`
+2.  **Configure Environment**:
+    Create the root `.env` file from the template:
+    ```bash
+    cp .env.example .env
+    nano .env
+    ```
+    Ensure you set:
+    - `NODE_ENV=production`
+    - `CORS_ORIGINS=https://yourdomain.com`
+    - `APP_URL=https://yourdomain.com`
+    - `VITE_API_URL=https://yourdomain.com/api`
+    - `VITE_GOOGLE_CLIENT_ID` (and the backend equivalent)
+    - All other API keys (Paymob, OpenRouter, Resend)
 
-4.  **Important Note for Client**:
-    - Since the Client is built into static files, environment variables like `VITE_GOOGLE_CLIENT_ID` are **baked in at build time**.
-    - If you change these variables, you must rebuild the image: `docker-compose up --build client`.
-    - Also, for `API_URL` within the Docker network, the browser still accesses the API from the **host** perspective (localhost:4000), so the default `localhost:4000` config in `api.ts` works fine for this local setup.
+## 3. Deployment
 
+Run the Docker stack in detached mode:
+
+```bash
+docker-compose up -d --build
+```
+
+## 4. Nginx Reverse Proxy (SSL)
+
+To expose the app and the API over HTTPS, use Nginx as a reverse proxy:
+
+1.  **Create Nginx Config**:
+    `sudo nano /etc/nginx/sites-available/cvmaker`
+
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com;
+
+    # Frontend
+    location / {
+        proxy_pass http://localhost:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # API Backend
+    location /api {
+        proxy_pass http://localhost:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+2.  **Enable Site and Get SSL**:
+```bash
+sudo ln -s /etc/nginx/sites-available/cvmaker /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+sudo certbot --nginx -d yourdomain.com
+```
+
+## 5. Maintenance
+
+- **Update Code**: `git pull && docker-compose up -d --build`
+- **View Logs**: `docker-compose logs -f`
+- **Database Backup**: 
+  ```bash
+  docker-compose exec postgres pg_dump -U user cvmaker > backup.sql
+  ```
+
+---
+
+### Troubleshooting Google Auth on VPS
+Ensure your domain (`https://yourdomain.com`) is added to:
+1.  **Authorized JavaScript origins** in Google Cloud Console.
+2.  **Authorized redirect URIs** in Google Cloud Console.
+3.  **CORS_ORIGINS** in your `.env` file.

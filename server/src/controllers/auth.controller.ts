@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import config from '../config/config';
 import { sendVerificationEmail } from '../services/email.service';
-import { logError, logInfo } from '../utils/logger';
+import logger, { logError, logInfo, logWarn } from '../utils/logger';
 
 const googleClient = new OAuth2Client(config.auth.googleClientId);
 
@@ -246,6 +246,19 @@ export const resendVerification = async (req: Request, res: Response) => {
 export const googleAuth = async (req: Request, res: Response) => {
     try {
         const { credential } = req.body;
+
+        if (!credential) {
+            logWarn('Google Auth attempt without credential');
+            res.status(400).json({ error: 'No Google credential provided' });
+            return;
+        }
+
+        if (!config.auth.googleClientId) {
+            logError(new Error('GOOGLE_CLIENT_ID is not configured on the server'));
+            res.status(500).json({ error: 'Server configuration error' });
+            return;
+        }
+
         const ticket = await googleClient.verifyIdToken({
             idToken: credential,
             audience: config.auth.googleClientId
@@ -296,6 +309,9 @@ export const googleAuth = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'googleAuth' });
-        res.status(500).json({ error: 'Google Auth Failed' });
+        res.status(500).json({
+            error: 'Google Auth Failed',
+            details: process.env.NODE_ENV !== 'production' ? (error as Error).message : undefined
+        });
     }
 };
