@@ -37,17 +37,5 @@ services:
     depends_on:
       - postgres
 
-  client:
-    build:
-      context: ./client
-      args:
-        - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
-        - VITE_API_URL=${VITE_API_URL}
-    restart: always
-    ports:
-      - "4001:80"
-    depends_on:
-      - server
-
 volumes:
   postgres_data:

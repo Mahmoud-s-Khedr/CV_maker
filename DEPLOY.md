@@ -16,6 +16,9 @@ sudo sh get-docker.sh
 
 # Install Nginx & Certbot (for SSL)
 sudo apt install nginx certbot python3-certbot-nginx -y
+
+# Allow Nginx through firewall (if UFW is enabled)
+sudo ufw allow 'Nginx Full'
 ```
 
 ## 2. Project Setup
@@ -42,7 +45,29 @@ sudo apt install nginx certbot python3-certbot-nginx -y
 
 ## 3. Deployment
 
-Run the Docker stack in detached mode:
+
+### 3.1. Build the Frontend (Client)
+
+On your local machine or VPS:
+
+```bash
+cd client
+npm install
+npm run build
+# The production build will be in client/dist
+```
+
+Copy the build output to your server (if building locally). **Note: You only need the `dist` folder contents for the server; `node_modules` is not required for the frontend.**
+
+```bash
+scp -r client/dist/* <your-vps-user>@<your-vps-ip>:/var/www/cvmaker/client/dist/
+```
+
+Or, if building on the VPS, just ensure `/var/www/cvmaker/client/dist` contains the latest build.
+
+### 3.2. Start Backend and Database
+
+Run the Docker stack (backend and database only):
 
 ```bash
 docker-compose up -d --build
@@ -58,16 +83,22 @@ To expose the app and the API over HTTPS, use Nginx as a reverse proxy:
     sudo nano /etc/nginx/sites-available/cvmaker
     ```
 
-    **Replace `yourdomain.com` with your actual domain**. The config includes:
-    - HTTP to HTTPS redirect
-    - Reverse proxy for frontend (port 4001) at `/`
-    - Reverse proxy for backend (port 4000) at `/api`
-    - SSL/TLS configuration with security headers
+    **Replace `handiscv.muhandis.software` (or `yourdomain.com`) with your actual domain**. 
+    
+    The provided configuration is **HTTP-only** by default to prevent SSL errors before certificates are generated. Certbot will upgrade it to HTTPS automatically in the next step.
+
+    The config includes:
+    - Serves static frontend files from `/var/www/cvmaker/client/dist` at `/`
+    - Proxies backend API (port 4000) at `/api`
+    - Basic security headers
     - Gzip compression
     - Proper proxy headers (X-Forwarded-*, etc.)
 
 2.  **Enable Site and Get SSL**:
     ```bash
+    # Remove default Nginx site (prevent conflicts)
+    sudo rm -f /etc/nginx/sites-enabled/default
+
     sudo ln -s /etc/nginx/sites-available/cvmaker /etc/nginx/sites-enabled/
     sudo nginx -t
     sudo systemctl restart nginx
@@ -128,10 +159,10 @@ sudo certbot renew --dry-run  # Test renewal
 sudo certbot certificates     # Check certificate status
 ```
 
+
 **Docker container connectivity**:
 ```bash
 docker-compose logs server   # View backend logs
-docker-compose logs client   # View frontend logs
 docker exec -it <container_id> /bin/sh  # Access container shell
 ```
 
