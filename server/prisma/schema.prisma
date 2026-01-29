@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  password           String? // Hashed password (optional if only Google)
+  googleId           String?   @unique
+  avatar             String?
+  isEmailVerified    Boolean   @default(false)
+  verificationToken  String?   @unique
+  verificationExpiry DateTime?
+  paymobOrderId      String?   @unique // For pending/completed order tracking
+  stripeCustomerId   String?   @unique
+  isPremium          Boolean   @default(false)
+  resumes            Resume[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Resume {
+  id        String   @id @default(cuid())
+  title     String   @default("Untitled Resume")
+  content   Json
+  isPublic  Boolean  @default(false)
+  shareKey  String?  @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  versions  ResumeVersion[]
+
+  @@index([userId])
+}
+
+model ResumeVersion {
+  id        String   @id @default(cuid())
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  content   Json
+  createdAt DateTime @default(now())
+
+  @@index([resumeId])
+}
