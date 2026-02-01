@@ -11,9 +11,9 @@ import logger, { logError, logInfo, logWarn } from '../utils/logger';
 
 const googleClient = new OAuth2Client(config.auth.googleClientId);
 
-const generateToken = (userId: string, email: string) => {
+const generateToken = (userId: string, email: string, role: string) => {
     return jwt.sign(
-        { userId, email },
+        { userId, email, role },
         config.auth.jwtSecret,
         { expiresIn: config.auth.jwtExpiresIn as jwt.SignOptions['expiresIn'] }
     );
@@ -26,7 +26,7 @@ const generateVerificationToken = (): string => {
 // REGISTER (Email/Password)
 export const register = async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, role } = req.body;
 
         if (!email || !password) {
             res.status(400).json({ error: 'Email and password are required' });
@@ -36,6 +36,18 @@ export const register = async (req: Request, res: Response) => {
         if (password.length < 6) {
             res.status(400).json({ error: 'Password must be at least 6 characters' });
             return;
+        }
+
+        // Validate Role (Security: Only allow USER or RECRUITER)
+        let assignedRole = 'USER';
+        if (role) {
+            if (role === 'RECRUITER') {
+                assignedRole = 'RECRUITER';
+            } else if (role !== 'USER') {
+                logWarn('Invalid role requested during registration', { email, role });
+                res.status(400).json({ error: 'Invalid role selected' });
+                return;
+            }
         }
 
         // Check if user exists
@@ -54,6 +66,7 @@ export const register = async (req: Request, res: Response) => {
             data: {
                 email,
                 password: hashedPassword,
+                role: assignedRole as any, // Cast to match Prisma enum
                 isEmailVerified: false,
                 verificationToken,
                 verificationExpiry,
@@ -132,7 +145,7 @@ export const login = async (req: Request, res: Response) => {
             return;
         }
 
-        const token = generateToken(user.id, user.email);
+        const token = generateToken(user.id, user.email, user.role);
         logInfo('User logged in successfully', { userId: user.id });
 
         res.json({
@@ -140,6 +153,7 @@ export const login = async (req: Request, res: Response) => {
             user: {
                 id: user.id,
                 email: user.email,
+                role: user.role,
                 isPremium: user.isPremium,
                 avatar: user.avatar,
             }
@@ -296,12 +310,13 @@ export const googleAuth = async (req: Request, res: Response) => {
             logInfo('Existing user linked Google account', { userId: user.id });
         }
 
-        const token = generateToken(user.id, user.email);
+        const token = generateToken(user.id, user.email, user.role);
         res.json({
             token,
             user: {
                 id: user.id,
                 email: user.email,
+                role: user.role,
                 isPremium: user.isPremium,
                 avatar: user.avatar,
             }

@@ -3,10 +3,15 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { ResumeEditor } from './components/editor/ResumeEditor';
 import { LandingPage } from './pages/LandingPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { RecruiterDashboard } from './pages/RecruiterDashboard';
+import { PublicResume } from './pages/PublicResume';
+import { Portfolio } from './pages/Portfolio';
 import { AuthPage } from './pages/AuthPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { PaymentPage } from './pages/PaymentPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AuthenticatedLayout } from './components/layout/AuthenticatedLayout';
 
 import { pdfjs } from 'react-pdf';
 
@@ -26,27 +31,38 @@ function App() {
           <Route path="/register" element={<AuthPage type="register" />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-          {/* Protected Routes */}
-          <Route path="/dashboard" element={
+          {/* Protected Routes (with shared layout) */}
+          <Route element={
             <ProtectedRoute>
-              <DashboardPage />
+              <AuthenticatedLayout />
             </ProtectedRoute>
-          } />
-          <Route path="/editor" element={
-            <ProtectedRoute>
-              <ResumeEditor />
-            </ProtectedRoute>
-          } />
-          <Route path="/editor/:id" element={
-            <ProtectedRoute>
-              <ResumeEditor />
-            </ProtectedRoute>
-          } />
-          <Route path="/payment" element={
-            <ProtectedRoute>
-              <PaymentPage />
-            </ProtectedRoute>
-          } />
+          }>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/editor" element={<ResumeEditor />} />
+            <Route path="/editor/:id" element={<ResumeEditor />} />
+            <Route path="/payment" element={<PaymentPage />} />
+
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/recruiter"
+              element={
+                <ProtectedRoute allowedRoles={['RECRUITER', 'ADMIN']}>
+                  <RecruiterDashboard />
+                </ProtectedRoute>
+              }
+            />
+          </Route>
+
+          <Route path="/cv/:shareKey" element={<PublicResume />} />
+          <Route path="/p/:shareKey" element={<Portfolio />} />
 
           {/* Redirect unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />

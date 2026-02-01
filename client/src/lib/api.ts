@@ -1,8 +1,15 @@
 import axios from 'axios';
-import type { ResumeSchema } from '../types/resume';
+import type { ResumeSchema, Resume } from '../types/resume';
 
-// Use environment variable for API URL, fallback to localhost for development
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+// Use environment variable for API URL, fallback to localhost for development.
+// We normalize it to ensure it includes the `/api` prefix.
+const normalizeApiUrl = (rawUrl: string): string => {
+    const trimmed = rawUrl.replace(/\/+$/, '');
+    if (trimmed.endsWith('/api')) return trimmed;
+    return `${trimmed}/api`;
+};
+
+const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL || 'http://localhost:4000');
 
 // Create axios instance first
 export const api = axios.create({
@@ -34,10 +41,8 @@ export const saveResume = async (userId: string, resume: ResumeSchema) => {
     });
 };
 
-export const updateResume = async (id: string, resume: ResumeSchema) => {
-    return await api.patch(`/resumes/${id}`, {
-        content: resume,
-    });
+export const updateResume = async (id: string, resumeUpdates: Partial<Resume> | { content: ResumeSchema }) => {
+    return await api.patch(`/resumes/${id}`, resumeUpdates);
 };
 
 export const loadResume = async (id: string) => {
@@ -52,21 +57,6 @@ export const getUserResumes = async (userId: string) => {
 
 export const deleteResume = async (id: string) => {
     await api.delete(`/resumes/${id}`);
-};
-
-export const createVersion = async (resumeId: string) => {
-    // We expect the server to use current state if no content provided, 
-    // or we can pass current content. 
-    // For simplicity, let's assume server handles it or we pass it if needed.
-    // Based on backend implementation: const { content } = req.body;
-    // We should probably pass content to be safe/explicit, but I'll update it to be flexible.
-    // Actually, let's just trigger it. If backend needs content, we'd need to pass it.
-    // My backend controller implementation uses req.body.content. 
-    // If it's missing, it creates version with "undefined" content? 
-    // Wait, backend: createVersion(id, content). Service: data: { content }.
-    // So I MUST pass content.
-    // I should update this signature to accept content.
-    return await api.post(`/resumes/${resumeId}/versions`, {});
 };
 
 export const saveVersion = async (resumeId: string, content: any) => {
@@ -90,6 +80,11 @@ export const importLinkedInResume = async (file: File) => {
     return response.data;
 };
 
+export const importGitHubRepos = async (username: string) => {
+    const response = await api.post('/import/github', { username });
+    return response.data;
+};
+
 // --- AUTH API ---
 export interface LoginCredentials {
     email: string;
@@ -99,6 +94,7 @@ export interface LoginCredentials {
 export interface RegisterCredentials {
     email: string;
     password: string;
+    role?: 'USER' | 'RECRUITER';
 }
 
 export interface AuthResponse {
@@ -106,6 +102,7 @@ export interface AuthResponse {
     user: {
         id: string;
         email: string;
+        role: string;
         isPremium: boolean;
         avatar?: string;
     };
@@ -150,3 +147,70 @@ export const resendVerification = async (email: string) => {
     const response = await api.post('/auth/resend-verification', { email });
     return response.data;
 };
+
+// --- ADMIN API ---
+export const getUsers = async (page = 1, limit = 20) => {
+    const response = await api.get(`/admin/users?page=${page}&limit=${limit}`);
+    return response.data;
+};
+
+export const deleteUser = async (id: string) => {
+    const response = await api.delete(`/admin/users/${id}`);
+    return response.data;
+};
+
+export const getAuditLogs = async (page = 1, limit = 50) => {
+    const response = await api.get(`/admin/logs?page=${page}&limit=${limit}`);
+    return response.data;
+};
+
+export const createTemplate = async (data: { name: string, config: any, isPremium: boolean, thumbnailUrl?: string }) => {
+    const response = await api.post('/admin/templates', data);
+    return response.data;
+};
+
+export const deleteTemplate = async (id: string) => {
+    const response = await api.delete(`/admin/templates/${id}`);
+    return response.data;
+};
+
+// --- TEMPLATE API ---
+export const getTemplates = async () => {
+    const response = await api.get('/templates');
+    return response.data;
+};
+
+export const getTemplate = async (id: string) => {
+    const response = await api.get(`/templates/${id}`);
+    return response.data;
+};
+
+// --- RECRUITER API ---
+export const searchResumes = async (query: string, page = 1, limit = 10) => {
+    const response = await api.get(`/recruiter/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`);
+    return response.data;
+};
+
+export const getPublicResume = async (shareKey: string) => {
+    const response = await api.get(`/recruiter/public/${shareKey}`);
+    return response.data;
+};
+
+// --- PAYMENT API ---
+export interface InitiatePaymentRequest {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+}
+
+export interface InitiatePaymentResponse {
+    paymentKey: string;
+    frameId: number | string;
+}
+
+export const initiatePayment = async (payload: InitiatePaymentRequest): Promise<InitiatePaymentResponse> => {
+    const response = await api.post('/payment/initiate', payload);
+    return response.data;
+};
+

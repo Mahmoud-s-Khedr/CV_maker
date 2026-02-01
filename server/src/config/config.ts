@@ -73,7 +73,7 @@ export const config = {
     // AI / OpenRouter
     ai: {
         openRouterApiKey: getOptionalEnvVar('OPENROUTER_API_KEY'),
-        defaultModel: getOptionalEnvVar('OPENROUTER_MODEL', 'openai/gpt-4o-mini'),
+        defaultModel: getOptionalEnvVar('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct'),
     },
 } as const;
 

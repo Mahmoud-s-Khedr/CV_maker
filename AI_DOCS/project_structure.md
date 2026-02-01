@@ -15,8 +15,9 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
 │   │   │   │   ├── SortableSection.tsx # dnd-kit wrapper
 │   │   │   │   └── forms/             # React-Hook-Form inputs
 │   │   │   ├── pdf/                   # @react-pdf/renderer Components
+│   │   │   │   ├── DynamicTemplateRenderer.tsx # JSON-based template engine
 │   │   │   │   ├── ResumeDocument.tsx # Root PDF Document
-│   │   │   │   └── templates/         # Resume Templates
+│   │   │   │   └── templates/         # Legacy Static Templates
 │   │   │   │       ├── ModernTemplate.tsx
 │   │   │   │       ├── MinimalistTemplate.tsx
 │   │   │   │       └── StandardTemplate.tsx
@@ -27,12 +28,17 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
 │   │   ├── lib/
 │   │   │   └── api.ts                 # Axios/Fetch integration
 │   │   ├── pages/
+│   │   │   ├── AdminDashboard.tsx     # Admin Stats & Template Management
 │   │   │   ├── AuthPage.tsx           # Login/Register forms
+│   │   │   ├── DashboardPage.tsx      # User's Resume List
 │   │   │   ├── LandingPage.tsx        # Marketing homepage
 │   │   │   ├── PaymentPage.tsx        # Paymob checkout flow
+│   │   │   ├── PublicResume.tsx       # Shareable resume view
+│   │   │   ├── RecruiterDashboard.tsx # Recruiter Search Portal
 │   │   │   └── VerifyEmailPage.tsx    # Email verification handler
 │   │   ├── store/
-│   │   │   └── resume.ts              # Zustand + Immer (Single Source of Truth)
+│   │   │   ├── auth.ts                # Auth state (token + user) persisted
+│   │   │   └── resume.ts              # Resume state (Zustand + Immer)
 │   │   ├── types/
 │   │   │   └── resume.ts              # Shared Resume Interfaces
 │   │   ├── App.tsx                    # Router configuration
@@ -50,22 +56,30 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
 │   │   ├── config/
 │   │   │   └── config.ts       # Env variables (OpenRouter, Paymob, JWT, etc.)
 │   │   ├── controllers/
+│   │   │   ├── admin.controller.ts    # Admin stats & validation
 │   │   │   ├── ai.controller.ts       # AI resume analysis endpoint
 │   │   │   ├── auth.controller.ts     # Login, Register, Google OAuth, Verify
 │   │   │   ├── import.controller.ts   # LinkedIn PDF import
 │   │   │   ├── payment.controller.ts  # Paymob integration
-│   │   │   └── resume.controller.ts   # CRUD for resumes
+│   │   │   ├── recruiter.controller.ts # Resume search logic
+│   │   │   ├── resume.controller.ts   # CRUD for resumes
+│   │   │   └── template.controller.ts # Dynamic template management
 │   │   ├── middleware/
-│   │   │   └── auth.middleware.ts     # JWT verification
+│   │   │   ├── auth.middleware.ts     # JWT verification + RBAC
+│   │   │   └── requestLogger.ts       # Request timing + logging
 │   │   ├── routes/
 │   │   │   ├── ai.routes.ts
 │   │   │   ├── auth.routes.ts
 │   │   │   ├── import.routes.ts
 │   │   │   ├── payment.routes.ts
-│   │   │   └── resume.routes.ts
+│   │   │   ├── resume.routes.ts
+│   │   │   ├── recruiter.routes.ts
+│   │   │   ├── template.routes.ts
+│   │   │   └── admin.routes.ts
 │   │   ├── services/
 │   │   │   ├── ai.service.ts          # OpenRouter/OpenAI integration
 │   │   │   ├── email.service.ts       # Resend transactional emails
+│   │   │   ├── github.service.ts       # GitHub repo import
 │   │   │   ├── paymob.service.ts      # Paymob payment gateway
 │   │   │   ├── pdf-parser.service.ts  # LinkedIn PDF extraction
 │   │   │   └── resume.service.ts      # Resume business logic
@@ -89,7 +103,9 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
 
 1.  **Separation of Concerns:** `client/components/editor` is for *input*, `client/components/pdf` is for *output*. They never import each other directly; they only communicate via the `Zustand Store`.
 
-2.  **Template System:** Each PDF template (`ModernTemplate`, `MinimalistTemplate`, `StandardTemplate`) is a self-contained component that receives the `ResumeSchema` and renders it using React-PDF primitives.
+2.  **Template System (Hybrid):**
+  * Built-in templates are shipped as React-PDF components (`standard`, `modern`, `minimalist`, `professional`, `executive`, `creative`).
+  * Dynamic templates are stored in the DB (`Template.config`) and rendered by `DynamicTemplateRenderer` when the client has loaded a `dynamicTemplateConfig`.
 
 3.  **Service Layer Pattern:** The backend uses a Service layer (e.g., `ai.service.ts`, `paymob.service.ts`) so we can easily swap providers if needed without rewriting controllers.
 
@@ -97,6 +113,10 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
     *   `auth.controller.ts` handles registration, login, email verification, and Google OAuth.
     *   `auth.middleware.ts` validates JWT tokens for protected routes.
     *   `ProtectedRoute.tsx` guards client-side routes.
+
+5.  **PDF Preview Stack:**
+  * `@react-pdf/renderer` generates PDFs via `usePDF()` (Blob URL)
+  * `react-pdf` renders the Blob URL for preview (pdf.js)
 
 5.  **Payment Integration:**
     *   `paymob.service.ts` handles token generation and payment initiation.
@@ -108,7 +128,8 @@ The project follows a **Monorepo-style** structure with the Frontend and Backend
 services:
   postgres:     # PostgreSQL 15 database
   server:       # Express backend (port 4000)
-  client:       # Nginx serving React build (port 80)
+
+Note: in this repo, `docker-compose.yml` currently orchestrates `postgres` and `server`. The frontend is typically built to static assets and served via system Nginx (see `DEPLOY.md` and `nginx/cvmaker.conf`).
 ```
 
 ## Environment Variables
@@ -121,15 +142,20 @@ JWT_SECRET=...
 JWT_EXPIRES_IN=7d
 GOOGLE_CLIENT_ID=...
 OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=openai/gpt-4o-mini
 PAYMOB_API_KEY=...
 PAYMOB_INTEGRATION_ID=...
 PAYMOB_FRAME_ID=...
+PAYMOB_HMAC_SECRET=...
 RESEND_API_KEY=...
-CLIENT_URL=http://localhost:5173
+FROM_EMAIL=noreply@...
+APP_URL=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173
+LOG_LEVEL=info
 ```
 
 ### Client (`client/.env`)
 ```env
-VITE_API_URL=http://localhost:4000
+VITE_API_URL=http://localhost:4000/api
 VITE_GOOGLE_CLIENT_ID=...
 ```

@@ -7,6 +7,9 @@ import importRoutes from './routes/import.routes';
 import aiRoutes from './routes/ai.routes';
 import authRoutes from './routes/auth.routes';
 import paymentRoutes from './routes/payment.routes';
+import adminRoutes from './routes/admin.routes';
+import templateRoutes from './routes/template.routes';
+import recruiterRoutes from './routes/recruiter.routes';
 import logger, { logError, logInfo } from './utils/logger';
 import requestLogger from './middleware/requestLogger';
 
@@ -29,6 +32,9 @@ app.use('/api/import', importRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/templates', templateRoutes);
+app.use('/api/recruiter', recruiterRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

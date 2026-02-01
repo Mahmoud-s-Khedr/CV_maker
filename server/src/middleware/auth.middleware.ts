@@ -6,6 +6,7 @@ interface AuthRequest extends Request {
     user?: {
         userId: string;
         email: string;
+        role: string;
     };
 }
 
@@ -23,11 +24,30 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
         const decoded = jwt.verify(token, config.auth.jwtSecret) as any;
         (req as AuthRequest).user = {
             userId: decoded.userId,
-            email: decoded.email
+            email: decoded.email,
+            role: decoded.role || 'USER', // Default to USER if not present (legacy tokens)
         };
         next();
     } catch (err) {
         res.status(401).json({ error: 'Invalid token' });
         return;
     }
+};
+
+export const authorize = (roles: string[]) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        const user = (req as AuthRequest).user;
+
+        if (!user) {
+            res.status(401).json({ error: 'User not authenticated' });
+            return;
+        }
+
+        if (!roles.includes(user.role)) {
+            res.status(403).json({ error: 'Access denied: Insufficient permissions' });
+            return;
+        }
+
+        next();
+    };
 };

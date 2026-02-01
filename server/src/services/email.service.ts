@@ -27,12 +27,12 @@ export const sendVerificationEmail = async (
 
     try {
         const { error } = await resend.emails.send({
-            from: config.email.fromEmail,
+            from: 'HandisCV <onboarding@resend.dev>',
             to: email,
-            subject: 'Verify your CV Maker account',
+            subject: 'Verify your email for HandisCV',
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h1 style="color: #2563eb;">Welcome to CV Maker!</h1>
+                    <h1 style="color: #2563eb;">Welcome to HandisCV!</h1>
                     <p>Please verify your email address by clicking the button below:</p>
                     <a href="${verificationUrl}" 
                        style="display: inline-block; background-color: #2563eb; color: white; 
@@ -81,7 +81,7 @@ export const sendPasswordResetEmail = async (
         const { error } = await resend.emails.send({
             from: config.email.fromEmail,
             to: email,
-            subject: 'Reset your CV Maker password',
+            subject: 'Reset your HandisCV password',
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                     <h1 style="color: #2563eb;">Reset Your Password</h1>

@@ -6,6 +6,7 @@ interface User {
     id: string;
     email: string;
     firstName?: string;
+    role: string;
     isPremium: boolean;
     avatar?: string;
 }
@@ -42,6 +43,12 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'cv-maker-auth',
+            onRehydrateStorage: () => (state, error) => {
+                if (error) return;
+
+                // Ensure axios has Authorization header after a page refresh.
+                api.setAuthToken(state?.token ?? null);
+            },
         }
     )
 );

@@ -7,12 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+enum Role {
+  USER
+  ADMIN
+  RECRUITER
+}
+
 model User {
   id                 String    @id @default(uuid())
   email              String    @unique
   password           String? // Hashed password (optional if only Google)
   googleId           String?   @unique
   avatar             String?
+  role               Role      @default(USER)
   isEmailVerified    Boolean   @default(false)
   verificationToken  String?   @unique
   verificationExpiry DateTime?
@@ -20,9 +28,30 @@ model User {
   stripeCustomerId   String?   @unique
   isPremium          Boolean   @default(false)
   resumes            Resume[]
+  auditLogs          AuditLog[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
+
+model Template {
+  id           String   @id @default(uuid())
+  name         String
+  thumbnailUrl String?
+  isPremium    Boolean  @default(false)
+  config       Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   Json?
+  adminId   String
+  admin     User     @relation(fields: [adminId], references: [id])
+  createdAt DateTime @default(now())
+}
+
 
 model Resume {
   id        String   @id @default(cuid())

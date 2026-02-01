@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import * as api from '../lib/api';
 import type { ResumeSchema, ResumeSection, SectionItem, SectionType } from '../types/resume';
+import type { TemplateConfig } from '../types/template';
 import { generateId } from '../types/resume';
 
 interface ResumeState {
@@ -36,6 +37,15 @@ interface ResumeState {
     saveToBackend: () => Promise<void>;
     loadFromBackend: (id: string) => Promise<void>;
     resetResume: () => void;
+
+    // Dynamic Templates
+    dynamicTemplateConfig: TemplateConfig | null;
+    loadDynamicTemplate: (templateId: string) => Promise<void>;
+
+    // Sharing
+    isPublic: boolean;
+    shareKey: string | null;
+    togglePublic: (isPublic: boolean) => Promise<void>;
 }
 
 const INITIAL_RESUME: ResumeSchema = {
@@ -170,7 +180,7 @@ export const useResumeStore = create<ResumeState>()(
             }),
 
         // Template
-        updateTemplate: (templateId: string) =>
+        updateTemplate: (templateId: string) => {
             set((state) => {
                 if (!state.resume.meta) {
                     state.resume.meta = {
@@ -184,7 +194,10 @@ export const useResumeStore = create<ResumeState>()(
                 } else {
                     state.resume.meta.templateId = templateId;
                 }
-            }),
+            });
+            // Trigger load for dynamic template
+            get().loadDynamicTemplate(templateId);
+        },
 
         // Notifications
         showNotification: (type, message) =>
@@ -216,7 +229,7 @@ export const useResumeStore = create<ResumeState>()(
             set((s) => { s.isSaving = true; });
             try {
                 if (state.backendId) {
-                    await api.updateResume(state.backendId, state.resume);
+                    await api.updateResume(state.backendId, { content: state.resume });
                 } else {
                     const result = await api.saveResume(userId, state.resume);
                     set((s) => { s.backendId = result.data.id; });
@@ -240,9 +253,16 @@ export const useResumeStore = create<ResumeState>()(
                 set((s) => {
                     s.resume = data.content as ResumeSchema;
                     s.backendId = data.id;
+                    s.isPublic = data.isPublic;
+                    s.shareKey = data.shareKey || null;
                     s.isSaving = false;
                     s.notification = { type: 'success', message: 'Resume loaded!' };
                 });
+
+                // Load template config if needed
+                if (data.content.meta?.templateId) {
+                    get().loadDynamicTemplate(data.content.meta.templateId);
+                }
             } catch (err) {
                 console.error("Failed to load", err);
                 set((s) => {
@@ -256,6 +276,63 @@ export const useResumeStore = create<ResumeState>()(
                 state.resume = INITIAL_RESUME;
                 state.backendId = null;
                 state.notification = null;
-            })
+                state.dynamicTemplateConfig = null;
+                state.isPublic = false;
+                state.shareKey = null;
+            }),
+
+        // Dynamic Templates
+        dynamicTemplateConfig: null,
+        loadDynamicTemplate: async (templateId) => {
+            // Check if it's a standard template first to avoid unnecessary API calls
+            const STANDARD_TEMPLATES = ['modern', 'minimalist', 'standard', 'professional', 'executive', 'creative'];
+            if (STANDARD_TEMPLATES.includes(templateId)) {
+                set((state) => { state.dynamicTemplateConfig = null; });
+                return;
+            }
+
+            try {
+                const template = await api.getTemplate(templateId);
+                set((state) => {
+                    state.dynamicTemplateConfig = template.config;
+                    // Also ensure styling metadata matches if needed
+                    if (state.resume.meta) {
+                        // Optional: overwrite theme config from template
+                    }
+                });
+            } catch (err) {
+                console.error("Failed to load template config", err);
+            }
+        },
+
+        // Sharing
+        isPublic: false,
+        shareKey: null,
+        togglePublic: async (isPublic) => {
+            const state = get();
+            if (!state.backendId) {
+                set((s) => { s.notification = { type: 'error', message: 'Please save your resume first.' }; });
+                return;
+            }
+
+            set((s) => { s.isSaving = true });
+            try {
+                // Update backend
+                const result = await api.updateResume(state.backendId, { isPublic });
+
+                set((s) => {
+                    s.isPublic = result.data.isPublic;
+                    s.shareKey = result.data.shareKey;
+                    s.isSaving = false;
+                    s.notification = { type: 'success', message: `Resume is now ${isPublic ? 'Public' : 'Private'}` };
+                });
+            } catch (err) {
+                console.error(err);
+                set((s) => {
+                    s.isSaving = false;
+                    s.notification = { type: 'error', message: 'Failed to update visibility' };
+                });
+            }
+        }
     }))
 );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { ResumeCard } from '../components/ResumeCard';
@@ -11,28 +11,11 @@ import { Toast } from '../components/ui/Toast';
 export const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
     const { showNotification } = useResumeStore();
-    const { logout } = useAuthStore(); // Use global auth store logout
+    const { user } = useAuthStore();
     const [resumes, setResumes] = useState<Resume[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [userId, setUserId] = useState<string | null>(null);
 
-    // Get User ID from localStorage (Auth Store)
-    useEffect(() => {
-        const authStorage = localStorage.getItem('cv-maker-auth');
-        if (authStorage) {
-            try {
-                const parsed = JSON.parse(authStorage);
-                const id = parsed.state?.user?.id;
-                if (id) setUserId(id);
-                else navigate('/login');
-            } catch (e) {
-                console.error("Failed to parse auth", e);
-                navigate('/login');
-            }
-        } else {
-            navigate('/login');
-        }
-    }, [navigate]);
+    const userId = useMemo(() => user?.id ?? null, [user?.id]);
 
     // Fetch Resumes
     const fetchResumes = async () => {
@@ -104,7 +87,7 @@ export const DashboardPage: React.FC = () => {
     if (!userId) return null;
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
             <Toast />
             <div className="max-w-6xl mx-auto space-y-8">
                 {/* Header */}
@@ -114,15 +97,6 @@ export const DashboardPage: React.FC = () => {
                         <p className="text-gray-500 mt-1">Manage and organize your CVs</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => {
-                                logout();
-                                navigate('/login');
-                            }}
-                            className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium transition"
-                        >
-                            Log Out
-                        </button>
                         <button
                             onClick={handleCreateNew}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm font-medium"

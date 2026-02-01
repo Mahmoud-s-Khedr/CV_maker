@@ -6,5 +6,6 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/linkedin', upload.single('file'), importController.importLinkedInPDF);
+router.post('/github', importController.importGitHubRepos);
 
 export default router;

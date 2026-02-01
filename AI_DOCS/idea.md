@@ -46,6 +46,8 @@ Applicant Tracking Systems (ATS) reject resumes before a human sees them.
     *   Send the resume text to an LLM (via OpenRouter) with a prompt: "Rate this resume for a Senior Developer role and suggest improvements."
     *   Display the feedback in a sidebar.
 
+**Current implementation:** `POST /api/ai/analyze` accepts `{ content: ResumeSchema }` and returns a structured analysis object (score/summary/strengths/weaknesses/suggestions).
+
 ## 4. LinkedIn Profile Import
 
 ### Why it is important
@@ -66,6 +68,13 @@ Filling out forms is boring.
     *   Strict Auth-Walls (Cat and Mouse game).
     *   Legal risks (Cease & Desist letters are common).
 
+**Current implementation:** `POST /api/import/linkedin` accepts a multipart `file`, parses text with `pdf-parse`, then calls the AI parser to extract profile fields.
+
+## 4.1 GitHub Projects Import (Implemented)
+Users can import public repositories into the Projects section.
+
+**Current implementation:** `POST /api/import/github` with `{ username }` returns a list of public repos (name, description, url, topics, stars, language).
+
 ## 5. Multiple Templates & Custom Branding
 
 ### Why it is important
@@ -82,10 +91,10 @@ Different industries need different looks (Creative validation vs Corporate stan
 Users tailor resumes for specific jobs (e.g., "Google Resume" vs "Startup Resume").
 
 ### How to implement
-*   **Delta Storage:**
-    *   Don't store the full JSON every autosave.
-    *   Use a tool like **immer** patches to store changes.
-*   **Forking:** Allow users to "Duplicate" a resume to branch off a new version.
+**Current implementation:** the backend stores full snapshot versions in `ResumeVersion.content`.
+
+- On `PATCH /api/resumes/:id`, the server automatically saves the previous `Resume.content` as a new `ResumeVersion` before applying the update.
+- The client also exposes a “history” UI that reads `GET /api/resumes/:id/versions`.
 
 ---
 
@@ -166,6 +175,11 @@ Users tailor resumes for specific jobs (e.g., "Google Resume" vs "Startup Resume
     *   [x] Add **AI Analysis** button (Send state to AI -> specific critiques).
     *   [x] Create 3 distinct templates (Modern, Minimalist, Standard).
 
+Additional implemented items:
+*   [x] GitHub repo import (projects)
+*   [x] Public resume sharing (toggle public + shareKey)
+*   [x] Recruiter search (basic title match, protected role)
+
 ### Phase 4: Launch & Polish - Week 5 ✅ COMPLETED
 *   **Goal:** Ready for users.
 *   **Tasks:**
@@ -176,11 +190,22 @@ Users tailor resumes for specific jobs (e.g., "Google Resume" vs "Startup Resume
     *   [x] Docker Compose setup for deployment.
     *   [x] Protected routes and user session management.
 
-### Phase 5: Post-Launch (Future)
-*   **Goal:** Scale and enhance.
+### Phase 5: Post-Launch & Scaling - Week 6+ ✅ IN PROGRESS
+*   **Goal:** Scale and enhance with role-based features.
 *   **Tasks:**
+    *   [x] **Dynamic Template System:** JSON-based templates stored in DB for instant updates without code changes.
+    *   [x] **Admin Portal:** Dashboard for managing users, templates, and viewing system stats.
+    *   [x] **Recruiter Portal:** Search interface for recruiters to find public resumes.
+    *   [x] **Resume Versioning:** History tracking to save and restore previous versions.
+    *   [x] **Public Sharing:** Custom shareable links for resumes.
     *   [ ] Stripe integration for international payments.
-    *   [ ] Resume version history with undo/redo.
-    *   [ ] Public resume sharing with custom URLs.
-    *   [ ] Additional templates and theming options.
     *   [ ] Deploy to Vercel/Netlify (frontend) + Railway/Render (backend).
+
+    ### Known gaps / next hardening steps
+    * Resume CRUD routes are currently not protected by auth middleware (they accept `userId` via body/path); this should be migrated to derive userId from JWT (`authenticate`) and add ownership checks.
+
+## 10. Future Horizons
+*   **Mobile App:** React Native wrap of the existing editor.
+*   **Browser Extension:** For one-click LinkedIn importing.
+*   **AI Mock Interviews:** Using the resume data to generate interview questions.
+

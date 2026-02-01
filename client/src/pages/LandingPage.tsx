@@ -10,7 +10,7 @@ export const LandingPage: React.FC = () => {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <FileText className="text-blue-600 w-6 h-6" />
-                        <span className="font-bold text-xl text-gray-900">CV Maker</span>
+                        <span className="font-bold text-xl text-gray-900">HandisCV</span>
                     </div>
                     <div className="flex items-center gap-4">
                         <Link to="/login" className="text-gray-600 hover:text-gray-900 font-medium text-sm">Sign In</Link>
@@ -44,7 +44,7 @@ export const LandingPage: React.FC = () => {
             <div className="py-24 bg-gray-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="text-center mb-16">
-                        <h2 className="text-3xl font-bold text-gray-900">Why CV Maker?</h2>
+                        <h2 className="text-3xl font-bold text-gray-900">Why HandisCV?</h2>
                     </div>
                     <div className="grid md:grid-cols-3 gap-8">
                         <FeatureCard
@@ -86,7 +86,7 @@ export const LandingPage: React.FC = () => {
             {/* Footer */}
             <footer className="bg-gray-50 border-t border-gray-200 py-12">
                 <div className="max-w-7xl mx-auto px-4 text-center text-gray-500">
-                    <p>© 2024 CV Maker. All rights reserved.</p>
+                    <p>© 2024 HandisCV. All rights reserved.</p>
                 </div>
             </footer>
         </div>

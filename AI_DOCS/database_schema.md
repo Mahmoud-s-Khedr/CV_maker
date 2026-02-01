@@ -4,6 +4,10 @@ Based on the [Architecture](./architecture.md) and [Idea](./idea.md) documents, 
 
 ## Schema Definition (`schema.prisma`)
 
+> Source of truth: `server/prisma/schema.prisma`.
+>
+> Note (current repo state): the initial migration SQL in `server/prisma/migrations/.../migration.sql` is **out of sync** with the Prisma schema (it still references `User.authId` and is missing newer auth/payment/admin/template/versioning fields). In deployment, the project currently uses `prisma db push` (as documented in `DEPLOY.md`), which applies `schema.prisma` directly.
+
 ```prisma
 generator client {
   provider = "prisma-client-js"
@@ -14,10 +18,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  USER
+  ADMIN
+  RECRUITER
+}
+
 /**
  * User Model
  * Supports both Email/Password and Google OAuth authentication.
- * Includes email verification and payment tracking.
+ * Includes email verification, role-based access, and payment tracking.
  */
 model User {
   id                 String    @id @default(uuid())
@@ -30,15 +40,16 @@ model User {
   googleId           String?   @unique
   avatar             String?
   
+  // Role-Based Access Control
+  role               Role      @default(USER)
+  
   // Email Verification
   isEmailVerified    Boolean   @default(false)
   verificationToken  String?   @unique
   verificationExpiry DateTime?
   
-  // Payment Info (Paymob)
+  // Payment Info
   paymobOrderId      String?   @unique  // For pending/completed order tracking
-  
-  // Payment Info (Stripe - Future)
   stripeCustomerId   String?   @unique
   
   // Premium Status
@@ -46,6 +57,7 @@ model User {
   
   // Relations
   resumes            Resume[]
+  auditLogs          AuditLog[] // Admin actions logged here
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -61,22 +73,69 @@ model Resume {
   title     String   @default("Untitled Resume")
   
   // The magic field: Stores the entire ResumeSchema interface as a JSON object.
-  // This includes sections, layout config, theme, profile, and content.
-  // Type: ResumeSchema (defined in architecture.md)
   content   Json     
   
   // Sharing & Visibility
   isPublic  Boolean  @default(false)
-  shareKey  String?  @unique // Random string for sharing link (e.g. /cv/share/xyz123)
+  shareKey  String?  @unique
   
   // Ownership
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Version History
+  versions  ResumeVersion[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+/**
+ * ResumeVersion Model
+ * Stores history of resume changes for restore/undo functionality.
+ */
+model ResumeVersion {
+  id        String   @id @default(cuid())
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  
+  content   Json     // Snapshot of the resume content
+  
+  createdAt DateTime @default(now())
+
+  @@index([resumeId])
+}
+
+/**
+ * Template Model
+ * Dynamic templates configured via JSON, managed by Admins.
+ */
+model Template {
+  id           String   @id @default(uuid())
+  name         String
+  thumbnailUrl String?
+  isPremium    Boolean  @default(false)
+  config       Json     // Stores styling, layout, and structure config
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/**
+ * AuditLog Model
+ * Tracks critical actions performed by Admins.
+ */
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   // e.g., "DELETE_USER", "UPDATE_TEMPLATE"
+  details   Json?
+  
+  adminId   String
+  admin     User     @relation(fields: [adminId], references: [id])
+  
+  createdAt DateTime @default(now())
 }
 ```
 
@@ -127,18 +186,18 @@ sequenceDiagram
 
     Note over U,E: Email/Password Registration
     U->>C: Fill registration form
-    C->>S: POST /auth/register
+    C->>S: POST /api/auth/register
     S->>DB: Create user (unverified)
     S->>E: Send verification email
     S->>C: Success (check email)
     U->>C: Click verification link
-    C->>S: GET /auth/verify?token=xxx
+    C->>S: GET /api/auth/verify-email?token=xxx
     S->>DB: Set isEmailVerified=true
     S->>C: Email verified
 
     Note over U,E: Google OAuth
     U->>C: Click "Sign in with Google"
-    C->>S: POST /auth/google (credential)
+    C->>S: POST /api/auth/google (credential)
     S->>DB: Find or create user (auto-verified)
     S->>C: JWT token + user data
 ```

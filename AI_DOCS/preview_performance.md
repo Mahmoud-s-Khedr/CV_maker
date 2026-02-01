@@ -1,20 +1,20 @@
-# Real-Time PDF Preview Implementation Strategy
+# Real-Time PDF Preview Implementation Strategy (Current Implementation)
 
-Rendering a PDF document in the browser is computationally expensive. Attempting to render it on every keystroke will freeze the UI. To solve this, we implement a **"Dual-State with Debounce"** architecture.
+Rendering a PDF document in the browser is computationally expensive. Attempting to regenerate a PDF on every keystroke will freeze the UI. The current implementation uses a **debounced data snapshot** + `@react-pdf/renderer`'s `usePDF()` to generate a Blob URL, then renders that Blob URL using `react-pdf` (pdf.js) for a fast viewer.
 
-## 1. The Architecture: Editor State vs. PDF State
+## 1. The Architecture: Editor State vs. PDF Snapshot
 
 We do not pass the raw form state directly to the PDF engine. Instead, we insert a buffer layer.
 
 ```mermaid
 graph LR
-    Input[User Types] --> |Instant| EditorState[Zustand Store]
-    EditorState --> |Reactive| FormUI[UI Components]
-    
-    EditorState --> |Debounce 600ms| PDFState[Deferred State]
-    PDFState --> |Trigger Render| PDFEngine[@react-pdf/renderer]
-    PDFEngine --> |Async| Blob[PDF Blob URL]
-    Blob --> |Update| Iframe[Preview Window]
+    Input[User Types] -->|Instant| Store[Zustand Store]
+    Store -->|Reactive| FormUI[Editor UI]
+
+    Store -->|Debounce ~500ms| Snapshot[debouncedResume]
+    Snapshot -->|useMemo| PDFDoc[ResumeDocument]
+    PDFDoc -->|usePDF()| Blob[Blob URL]
+    Blob -->|react-pdf| Viewer[PDF Preview]
 ```
 
 ## 2. Solution Implementation
@@ -46,87 +46,63 @@ export function useDebounce<T>(value: T, delay: number): T {
 The main orchestrator in `client/src/components/editor/ResumeEditor.tsx`:
 
 ```tsx
-import { useResumeStore } from '../../store/resume';
+import React, { useEffect, useMemo } from 'react';
+import { usePDF } from '@react-pdf/renderer';
 import { useDebounce } from '../../hooks/useDebounce';
-import { PDFViewer } from '@react-pdf/renderer';
+import { useResumeStore } from '../../store/resume';
 import { ResumeDocument } from '../pdf/ResumeDocument';
 
 export const ResumeEditor = () => {
-    const resumeData = useResumeStore((state) => state.resume);
-    
-    // The Critical Optimization:
-    // This value only updates 600ms after the user STOPS typing.
-    const debouncedResumeData = useDebounce(resumeData, 600);
+    const { resume, dynamicTemplateConfig } = useResumeStore();
 
-    return (
-        <div className="flex h-screen">
-            {/* Left: Editor (Interactive, Instant) */}
-            <div className="w-1/2 overflow-auto p-6">
-                <EditorForm data={resumeData} />
-            </div>
+    // Critical optimization: only update snapshot after user pauses typing
+    const debouncedResume = useDebounce(resume, 500);
 
-            {/* Right: Preview (Passive, Delayed) */}
-            <div className="w-1/2 bg-gray-100 p-6">
-                <PDFViewer className="w-full h-full" showToolbar={false}>
-                    {/* The PDF engine only sees the 'stale' debounced data */}
-                    <ResumeDocument data={debouncedResumeData} />
-                </PDFViewer>
-            </div>
-        </div>
+    const pdfDocument = useMemo(
+        () => <ResumeDocument data={debouncedResume} dynamicConfig={dynamicTemplateConfig} />,
+        [debouncedResume, dynamicTemplateConfig]
     );
+
+    // Generate a Blob URL
+    const [instance, updateInstance] = usePDF({ document: pdfDocument });
+
+    // Ensure updates are triggered when the memoized document changes
+    useEffect(() => {
+        updateInstance(pdfDocument);
+    }, [pdfDocument, updateInstance]);
+
+    // instance.url is rendered by the PDF viewer component (react-pdf)
+    return null;
 };
 ```
 
-### Step C: Template Selection
-The `ResumeDocument` component routes to the appropriate template based on `meta.templateId`:
+### Step C: Dynamic Template Selection
+The `ResumeDocument` component selects the renderer based on whether the template is a legacy hardcoded one or a dynamic configuration.
 
 ```tsx
 // client/src/components/pdf/ResumeDocument.tsx
-import { Document } from '@react-pdf/renderer';
-import { ModernTemplate } from './templates/ModernTemplate';
-import { MinimalistTemplate } from './templates/MinimalistTemplate';
-import { StandardTemplate } from './templates/StandardTemplate';
-
-const TEMPLATES = {
-    modern: ModernTemplate,
-    minimalist: MinimalistTemplate,
-    standard: StandardTemplate,
-};
-
-export const ResumeDocument = ({ data }) => {
-    const TemplateComponent = TEMPLATES[data.meta?.templateId] || ModernTemplate;
-    
-    return (
-        <Document>
-            <TemplateComponent data={data} />
-        </Document>
-    );
+export const ResumeDocument = ({ data, dynamicConfig }) => {
+  // If dynamicConfig is present, it takes priority
+  // Otherwise it falls back to built-in templates (standard/modern/minimalist/etc.)
 };
 ```
 
-### Step D: Aggressive Memoization (`React.memo`)
-Each template uses memoization to prevent re-rendering sections that haven't changed:
+### Step D: Memoization + Stable Updates
+The PDF document React tree is memoized (`useMemo`) and then fed into `usePDF()`. We also explicitly call `updateInstance()` when the memoized document changes to avoid stale renders.
 
 ```tsx
-// Example from ModernTemplate.tsx
-const ExperienceSection = React.memo(({ items }) => {
-    return (
-        <View>
-            {items.map(item => <ExperienceItem key={item.id} {...item} />)}
-        </View>
-    );
-}, (prev, next) => {
-    return JSON.stringify(prev.items) === JSON.stringify(next.items);
-});
+const pdfDocument = useMemo(
+    () => <ResumeDocument data={debouncedResume} dynamicConfig={dynamicTemplateConfig} />,
+    [debouncedResume, dynamicTemplateConfig]
+);
 ```
 
-## 3. Available Templates
+## 3. Template Strategy (Hybrid)
 
-| Template | Style | Best For |
-|----------|-------|----------|
-| **Modern** | Clean with accent colors | Tech industry, startups |
-| **Minimalist** | Ultra-clean, lots of whitespace | Design roles, senior positions |
-| **Standard** | Traditional, formal | Corporate, government |
+| Type | Pros | Cons |
+|------|------|------|
+| **Legacy (Hardcoded)** | Easy to write initially | Requires code deploy to change |
+| **Dynamic (JSON)** | Update via Admin Panel, DB-stored | Complex renderer logic |
 
 ## 4. State Management Integration
 
@@ -149,10 +125,10 @@ interface ResumeState {
 
 ## 5. Performance Considerations
 
-1. **600ms Debounce:** Balances responsiveness with performance. Users see updates quickly but not on every keystroke.
+1. **~500ms Debounce:** Balances responsiveness with performance. Users see updates quickly but not on every keystroke.
 
 2. **Immer Integration:** The store uses Immer for immutable updates, which pairs well with React.memo's shallow comparison.
 
-3. **Selective Re-renders:** Only the PDF preview re-renders on debounced changes; the editor remains instantly responsive.
+3. **Selective Re-renders:** Only the preview pipeline re-runs on debounced changes; the editor remains instantly responsive.
 
-4. **Backend Sync:** Save operations are separate from the debounce cycle, triggered explicitly rather than on every state change.
+4. **Backend Sync:** Save operations are separate from the debounce cycle (manual save button / explicit actions).

@@ -1,9 +1,37 @@
-const pdf = require('pdf-parse');
+// pdf-parse@2.x exports a PDFParse class (not a callable function).
+// When loaded from CommonJS it may appear under `.default`.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParseModule = require('pdf-parse');
+const PDFParseCtor: any = pdfParseModule?.PDFParse ?? pdfParseModule?.default?.PDFParse;
 
 export const parseResumePDF = async (buffer: Buffer): Promise<string> => {
     try {
-        const data = await pdf(buffer);
-        return data.text;
+        if (typeof PDFParseCtor !== 'function') {
+            throw new Error('pdf-parse PDFParse export not found');
+        }
+
+        const parser = new PDFParseCtor({ data: buffer });
+        const result = await parser.getText();
+
+        // Best-effort cleanup (some versions expose destroy)
+        try {
+            if (typeof parser.destroy === 'function') {
+                await parser.destroy();
+            }
+        } catch {
+            // ignore
+        }
+
+        if (typeof result === 'string') {
+            return result;
+        }
+
+        if (result && typeof result.text === 'string') {
+            return result.text;
+        }
+
+        // Fallback: return whatever can be stringified
+        return String((result as any)?.text ?? '');
     } catch (error) {
         console.error('Error parsing PDF:', error);
         throw new Error('Failed to parse PDF file');

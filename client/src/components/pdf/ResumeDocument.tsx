@@ -7,17 +7,24 @@ import { MinimalistTemplate } from './templates/MinimalistTemplate';
 import { ProfessionalTemplate } from './templates/ProfessionalTemplate';
 import { ExecutiveTemplate } from './templates/ExecutiveTemplate';
 import { CreativeTemplate } from './templates/CreativeTemplate';
+import { DynamicTemplateRenderer } from './DynamicTemplateRenderer';
+import type { TemplateConfig } from '../../types/template';
 
 interface ResumeDocumentProps {
     data: ResumeSchema;
+    dynamicConfig?: TemplateConfig | null;
 }
 
-export const ResumeDocument: React.FC<ResumeDocumentProps> = ({ data }) => {
+export const ResumeDocument: React.FC<ResumeDocumentProps> = ({ data, dynamicConfig }) => {
     // Default to 'standard' if undefined
-    // We assume data.meta might be missing in older state versions, so we guard
     const templateId = (data.meta && data.meta.templateId) ? data.meta.templateId : 'standard';
 
     const renderTemplate = () => {
+        // If we have dynamic config and it matches the ID (or we just prioritize it if present)
+        if (dynamicConfig) {
+            return <DynamicTemplateRenderer data={data} config={dynamicConfig} />;
+        }
+
         switch (templateId) {
             case 'modern':
                 return <ModernTemplate data={data} />;

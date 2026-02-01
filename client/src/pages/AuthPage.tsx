@@ -35,7 +35,10 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
                 login(result.token, result.user);
                 navigate(from, { replace: true });
             } else {
-                await api.register(data);
+                await api.register({
+                    ...data,
+                    role: data.isRecruiter ? 'RECRUITER' : 'USER'
+                });
                 setSuccess('Registration successful! Please check your email to verify your account.');
                 setRequiresVerification(true);
             }
@@ -222,6 +225,20 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
                                             className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 outline-none transition-all focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
                                         />
                                     </div>
+
+                                    {!isLogin && (
+                                        <div className="flex items-center space-x-2 pt-2">
+                                            <input
+                                                type="checkbox"
+                                                id="recruiter-role"
+                                                {...register('isRecruiter')}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                            />
+                                            <label htmlFor="recruiter-role" className="text-sm text-gray-600 select-none cursor-pointer">
+                                                I am a Hiring Manager / Recruiter
+                                            </label>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <button

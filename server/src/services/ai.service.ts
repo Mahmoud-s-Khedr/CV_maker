@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import config from '../config/config';
 
 
 export const analyzeResume = async (resumeContent: any) => {
@@ -14,7 +15,7 @@ export const analyzeResume = async (resumeContent: any) => {
 
     try {
         const completion = await openai.chat.completions.create({
-            model: 'meta-llama/llama-3.3-70b-instruct', // Efficient and good model
+            model: config.ai.defaultModel,
             messages: [
                 {
                     role: 'system',
@@ -59,7 +60,7 @@ export const parseResumeText = async (text: string) => {
 
     try {
         const completion = await openai.chat.completions.create({
-            model: 'meta-llama/llama-3.3-70b-instruct',
+            model: config.ai.defaultModel,
             messages: [
                 {
                     role: 'system',

@@ -36,6 +36,12 @@ export const updateResume = async (req: Request, res: Response) => {
         const currentResume = await resumeService.getResumeById(id as string);
         if (currentResume) {
             await resumeService.createVersion(id as string, currentResume.content);
+
+            // Handle Public/Share Key logic
+            if (data.isPublic === true && !currentResume.shareKey) {
+                // simple 10 char random string
+                data.shareKey = Math.random().toString(36).substring(2, 12);
+            }
         }
 
         const resume = await resumeService.updateResume(id as string, data);

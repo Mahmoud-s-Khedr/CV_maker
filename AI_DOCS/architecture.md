@@ -1,85 +1,157 @@
 # Project Architecture & Technical Stack
 
-## 1. High-Level Architecture
-The CV Maker is designed as a **Client-Side First** application. The heavy lifting of document rendering, state management, and interactivity happens in the user's browser. The backend primarily serves as a synchronization layer, authentication provider, payment processor, and AI proxy.
+## 1. High-Level Architecture (Current Implementation)
+The HandisCV is a **client-side first** app.
 
-The core architectural principle is **"Single Source of Truth"**: The Resume State object drives both the Editor UI and the PDF Renderer simultaneously, ensuring 100% visual consistency ("What You See Is What You Get").
+- The browser owns the **single source of truth** resume state (Zustand + Immer).
+- The backend is primarily:
+    - persistence for resume JSON (`Resume.content` JSONB)
+    - authentication + RBAC
+    - AI proxy (OpenRouter)
+    - payments (Paymob)
+    - template config storage (dynamic templates)
 
 ```mermaid
 graph TD
-    subgraph Client [Browser]
-        User[User Interactions] --> |Updates| Store[Zustand Store + Immer]
-        Store --> |Re-renders| Editor[Form & Drag-and-Drop Editor]
-        Store --> |Re-renders| PDF[React-PDF Reconciler]
-        PDF --> |Generates Blob| Preview[PDF Viewer Iframe/Canvas]
-        
-        Import[LinkedIn/Resume Parsing] --> |Populates| Store
-        GoogleOAuth[Google OAuth] --> Auth
-    end
-    
-    subgraph Server [API / Backend]
-        Auth[Authentication Service]
-        AI[AI Optimization Service]
-        DB[(PostgreSQL - JSONB)]
-        Email[Resend Email Service]
-        Payment[Paymob Payment Gateway]
-    end
-    
-    Store <--> |Sync/Save| DB
-    Store --> |Request Critique| AI
-    Client --> |Login/Register| Auth
-    Auth --> |Verification| Email
-    Client --> |Premium Upgrade| Payment
+        subgraph Browser[Client (React + Vite)]
+                User[User Input] --> Store[Zustand + Immer Resume Store]
+                Store --> Editor[Editor UI + dnd-kit]
+                Store -->|debounce ~500ms| PDFDoc[@react-pdf/renderer Document]
+                PDFDoc -->|usePDF -> Blob URL| Blob[(blob:...)]
+                Blob --> Viewer[react-pdf Viewer (pdf.js)]
+
+                Store -->|POST /api/ai/analyze| AIEndpoint
+                Store -->|POST /api/resumes| Save
+                Store -->|PATCH /api/resumes/:id| Update
+                Editor -->|Upload PDF| ImportLinkedIn[POST /api/import/linkedin]
+                Editor -->|Import repos| ImportGitHub[POST /api/import/github]
+
+                AuthUI[Auth Pages] -->|POST /api/auth/*| AuthAPI
+                RecruiterUI[Recruiter Dashboard] -->|GET /api/recruiter/search| RecruiterAPI
+                PublicUI[Public Resume View] -->|GET /api/recruiter/public/:shareKey| PublicAPI
+                AdminUI[Admin Dashboard] -->|/api/admin/*| AdminAPI
+                TemplatesUI[Template Picker] -->|GET /api/templates| TemplatesAPI
+        end
+
+        subgraph Server[Server (Express)]
+                AuthAPI[/Auth Controller/]
+                AIEndpoint[/AI Controller/]
+                ImportAPI[/Import Controller/]
+                RecruiterAPI[/Recruiter Controller/]
+                AdminAPI[/Admin Controller/]
+                PaymentAPI[/Payment Controller/]
+                TemplatesAPI[/Template Controller/]
+                DB[(PostgreSQL + Prisma)]
+                Email[Resend Email]
+                Paymob[Paymob APIs + Webhook]
+                OpenRouter[OpenRouter via OpenAI SDK]
+        end
+
+        AuthAPI --> DB
+        AuthAPI --> Email
+        Save --> DB
+        Update --> DB
+        RecruiterAPI --> DB
+        AdminAPI --> DB
+        TemplatesAPI --> DB
+        ImportLinkedIn --> ImportAPI --> OpenRouter
+        AIEndpoint --> OpenRouter
+        PaymentAPI --> Paymob
+        PaymentAPI --> DB
 ```
 
----
+## 2. Implemented API Surface (Server)
+Mounted in `server/src/app.ts`.
 
-## 2. Technology Stack (Implemented)
+### Authentication (`/api/auth`)
+- `POST /register` (email/password; role limited to `USER` or `RECRUITER`)
+- `POST /login` (blocked if `isEmailVerified=false`)
+- `GET /verify-email?token=...`
+- `POST /resend-verification`
+- `POST /google` (Google ID token; auto-verifies email)
 
-### Frontend (The Core)
-*   **Framework:** **React** (v19) with **Vite** for fast HMR.
-*   **Language:** **TypeScript** (Strict mode).
-*   **Styling:** **Tailwind CSS** (v4) for the Editor UI + **StyleSheet** for `@react-pdf/renderer` styling.
-*   **State Management:** **Zustand** (v5) combined with **Immer** (v11).
-    *   *Reasoning:* Redux is too verbose for this; Context API creates too many re-renders. Zustand is lightweight, and Immer allows for easy state mutations and future undo/redo capability.
-*   **Form Handling:** **React Hook Form** (v7) + **Zod** (v4).
-    *   *Reasoning:* Performance is critical when every keystroke could potentially trigger a PDF re-render. RHF's uncontrolled inputs reduce render trashing.
-*   **Drag & Drop:** **@dnd-kit/core** & **@dnd-kit/sortable** (v10).
-    *   *Reasoning:* Modern, accessible, and lightweight compared to `react-beautiful-dnd`.
-*   **PDF Engine:** **@react-pdf/renderer** (v4).
-    *   *Reasoning:* Allows writing PDFs using React primitives (`<View>`, `<Text>`, `<Page>`).
-*   **Routing:** **React Router DOM** (v7).
-*   **Authentication UI:** **@react-oauth/google** for Google Sign-In button.
-*   **Icons:** **Lucide React**.
+### Resumes (`/api/resumes`)
+- `POST /` create resume (currently expects `userId` in body)
+- `GET /:id` fetch one
+- `PATCH /:id` update resume
+    - auto-creates a `ResumeVersion` snapshot before updating
+    - if `isPublic=true` and no `shareKey`, generates a share key
+- `GET /user/:userId` list resumes by user (currently via URL param)
+- `DELETE /:id` delete resume
+- `POST /:id/versions` create version (expects `{ content }`)
+- `GET /:id/versions` list versions
 
-### Backend (Support Layer)
-*   **Runtime:** **Node.js**.
-*   **Framework:** **Express** (v5).
-*   **Database:** **PostgreSQL** (v15).
-    *   *Why Postgres over Mongo?* We need relational data for Users, Subscriptions, and authentication, but `JSONB` columns allow us to store the complex, nested Resume object schema-lessly while retaining the ability to query it if needed.
-*   **ORM:** **Prisma** (v5).
-*   **AI Integration:** **OpenAI SDK** with OpenRouter-compatible endpoints.
-*   **Authentication:** **Custom implementation**:
-    *   Email/Password with bcrypt hashing.
-    *   JWT tokens for session management.
-    *   Google OAuth via `google-auth-library`.
-*   **Email Service:** **Resend** for transactional emails (verification, etc.).
-*   **Payments:** **Paymob** (optimized for Egyptian/MENA market).
-*   **PDF Parsing:** **pdf-parse** for LinkedIn PDF import.
-*   **Security:** **Helmet** for HTTP headers, **CORS** configured.
-*   **Deployment:** **Docker Compose** with PostgreSQL, Server, and Client services.
+> Note: resume routes are not currently protected by `authenticate` middleware (there are TODOs in the controllers). This is the current state, not the intended final security posture.
 
----
+### Import (`/api/import`)
+- `POST /linkedin` (multipart `file`; parses PDF text via `pdf-parse`, then uses AI to extract profile fields)
+- `POST /github` (`{ username }` -> returns public repo data)
 
-## 3. Data Model & State Strategy
+### AI (`/api/ai`)
+- `POST /analyze` (`{ content }` -> returns analysis JSON)
 
-### The Resume Schema (TypeScript Interface)
-The entire application revolves around this structure. It must be versioned to allow for future template upgrades.
+### Templates (`/api/templates`)
+- `GET /` list templates (id/name/thumbnail/isPremium)
+- `GET /:id` fetch template (includes `config` JSON)
 
-```typescript
+### Recruiter (`/api/recruiter`)
+- `GET /public/:shareKey` public resume fetch (requires `isPublic=true`)
+- `GET /search?q=...` protected search (`RECRUITER` or `ADMIN`)
+    - current implementation is a basic `title contains` search
+    - response is a “preview” object derived from `Resume.content.profile`
+
+### Admin (`/api/admin`) (protected)
+All routes require `authenticate` + `authorize(['ADMIN'])`.
+
+- `GET /users` list users
+- `DELETE /users/:id` delete a user
+- `GET /logs` audit log list
+- `POST /templates` create a template (writes to `Template`)
+
+### Payment (`/api/payment`)
+- `POST /initiate` protected (JWT required)
+    - returns `{ paymentKey, frameId }` for Paymob iframe
+- `POST /webhook?hmac=...` validates Paymob HMAC, upgrades user to `isPremium=true` on success
+
+## 3. Technology Stack (as in `package.json`)
+
+### Frontend
+- React 19 + Vite
+- TypeScript
+- Tailwind CSS
+- State: Zustand + Immer
+- Drag & drop: dnd-kit
+- PDF generation: `@react-pdf/renderer` (PDF creation) + `react-pdf` (viewer via pdf.js)
+- Auth UI: `@react-oauth/google`
+
+### Backend
+- Node.js + Express 5
+- PostgreSQL 15 + Prisma
+- Auth: JWT bearer tokens (`Authorization: Bearer <token>`)
+- Email: Resend
+- AI: OpenAI SDK targeting OpenRouter
+- Payments: Paymob
+- Uploads: Multer (memory storage) + `pdf-parse`
+- Observability: request logging middleware + Winston logger
+
+## 4. Data Model & State Strategy
+
+### Resume Schema (Frontend)
+The frontend `ResumeSchema` includes a profile with `jobTitle` and multiple section types.
+
+```ts
+type SectionType =
+    | 'experience'
+    | 'education'
+    | 'skills'
+    | 'projects'
+    | 'certifications'
+    | 'languages'
+    | 'custom';
+
 type ResumeSchema = {
     meta: {
-        templateId: string; // 'modern' | 'minimalist' | 'standard'
+        templateId: string;
         themeConfig: {
             primaryColor: string;
             fontFamily: string;
@@ -88,6 +160,7 @@ type ResumeSchema = {
     };
     profile: {
         fullName: string;
+        jobTitle: string;
         email: string;
         phone: string;
         location: string;
@@ -96,49 +169,26 @@ type ResumeSchema = {
     };
     sections: {
         id: string;
-        type: 'experience' | 'education' | 'custom';
+        type: SectionType;
         title: string;
         isVisible: boolean;
         columns: number;
         items: any[];
     }[];
-}
+};
 ```
 
-### Rendering Strategy: The "Split-World" Approach
-A major challenge is that HTML CSS (for the editor) and PDF primitives (for the output) are different.
-*   **Common Data:** Both "worlds" consume the same `ResumeSchema` prop.
-*   **Editor Components:** Render HTML `<div>`, `<input>`, and Tailwind classes.
-*   **PDF Components:** Render `<View>`, `<Text>`, and React-PDF styles.
-*   **Shared Logic:** Helper functions for things like date formatting, strict string optimization, and bullet point processing are shared.
+### Rendering Strategy
+- The editor writes to the store immediately.
+- The PDF pipeline uses a debounced snapshot (currently ~500ms) to avoid heavy re-renders.
+- PDF generation uses `usePDF()` to create a Blob URL; preview renders that Blob URL with `react-pdf`.
 
----
+### Template Strategy (Hybrid)
+- “Standard templates” are shipped as React components (standard/modern/minimalist/professional/executive/creative).
+- “Dynamic templates” are stored in the DB as JSON (`Template.config`) and rendered by `DynamicTemplateRenderer`.
 
-## 4. Key Technical Implementation Details
-
-### A. Real-Time PDF Preview
-Rendering a PDF on every keystroke allows for a perfect preview but is performance-heavy.
-*   **Debouncing:** The PDF generation trigger is debounced (600ms after user stops typing).
-*   **Memoization:** Heavy components in the PDF document are memoized (`React.memo`) to prevent regenerating pages that haven't changed.
-
-### B. LinkedIn Import / Data Loading Strategy
-Since server-side scraping is blocked by LinkedIn, we adopt a file-based approach:
-1.  **File-Based Import (Implemented):**
-    *   User uploads `Profile.pdf` (exported from LinkedIn).
-    *   Backend uses `pdf-parse` -> LLM Sanitization -> `ResumeSchema`.
-2.  **Future Enhancement (Client-Side Extension):**
-    *   A separate Chrome Extension reads DOM data -> POSTs JSON to our API.
-
-### C. Authentication System (Implemented)
-*   **Email/Password:** Registration with email verification via Resend.
-*   **Google OAuth:** One-click sign-in with automatic email verification.
-*   **JWT Tokens:** Stateless authentication with configurable expiry.
-*   **Protected Routes:** Client-side route guards for authenticated pages.
-
-### D. Payment Integration (Implemented)
-*   **Paymob Gateway:** Egyptian payment provider supporting local payment methods.
-*   **Premium Features:** Gated behind payment (additional templates, unlimited exports, AI analysis).
-
-### E. ATS Optimization (The "Invisible" Layer)
-*   **Text Layer:** `@react-pdf/renderer` naturally creates text-selectable PDFs (not images), which is Step 1 for ATS.
-*   **Clean Templates:** All 3 templates (Modern, Minimalist, Standard) are designed without columns or graphics that confuse parsers.
+## 5. Security & Operational Notes
+- HTTP headers: Helmet
+- CORS: configured via `CORS_ORIGINS` env var
+- Request logging: `requestLogger` logs each request + duration
+- Global error handler: logs error context and returns `500`

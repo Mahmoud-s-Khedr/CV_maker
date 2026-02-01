@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useResumeStore } from '../../store/resume';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../../store/auth';
+import { getRoleHomePath } from '../../lib/roleHome';
 import {
     DndContext,
     closestCenter,
@@ -18,13 +20,14 @@ import {
 } from '@dnd-kit/sortable';
 import { usePDF } from '@react-pdf/renderer';
 
-import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock, Share2, Globe, Copy } from 'lucide-react';
 import { SortableSection } from './SortableSection';
 import { ResumeDocument } from '../pdf/ResumeDocument';
 import { useDebounce } from '../../hooks/useDebounce';
 import { AnalysisPanel } from './AnalysisPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { PDFPreview } from './PDFPreview';
+import { makeResumePdfFilename } from '../../lib/filename';
 import { PersonalInfoForm } from './forms/PersonalInfoForm';
 import { SectionItemEditor } from './SectionItemEditor';
 import { AddSectionModal } from './AddSectionModal';
@@ -47,21 +50,53 @@ export const ResumeEditor: React.FC = () => {
         showNotification,
         updateProfile,
         loadFromBackend,
-        resetResume
+        resetResume,
+        dynamicTemplateConfig,
+        isPublic,
+        shareKey,
+        togglePublic
     } = useResumeStore();
 
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const { user } = useAuthStore();
 
     const [showAddModal, setShowAddModal] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
+    const [availableTemplates, setAvailableTemplates] = useState<{ id: string, name: string }[]>([]);
+    const [showShareMenu, setShowShareMenu] = useState(false);
+    const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
+
+    useEffect(() => {
+        const fetchTemplates = async () => {
+            try {
+                const { getTemplates } = await import('../../lib/api');
+                const templates = await getTemplates();
+                setAvailableTemplates(templates);
+            } catch (err) {
+                console.error("Failed to fetch templates", err);
+            }
+        };
+        fetchTemplates();
+    }, []);
 
     // Performance: Debounce the resume data passed to the heavy PDF renderer
     const debouncedResume = useDebounce(resume, 500);
 
+    const downloadFileName = useMemo(
+        () => makeResumePdfFilename(resume.profile?.fullName, resume.profile?.jobTitle),
+        [resume.profile?.fullName, resume.profile?.jobTitle]
+    );
+
     // Stable reference for the PDF document
-    const pdfDocument = useMemo(() => <ResumeDocument data={debouncedResume} />, [debouncedResume]);
+    // Stable reference for the PDF document
+    const pdfDocument = useMemo(() => (
+        <ResumeDocument
+            data={debouncedResume}
+            dynamicConfig={dynamicTemplateConfig}
+        />
+    ), [debouncedResume, dynamicTemplateConfig]);
 
     // Generate PDF Blob URL
     // Fix: Explicitly type or inspect usePDF return if needed, but usually it returns [instance, updateInstance]
@@ -119,12 +154,14 @@ export const ResumeEditor: React.FC = () => {
             }
         } catch (err) {
             console.error(err);
-            showNotification('error', 'Failed to import LinkedIn PDF');
+            const anyErr = err as any;
+            const message = anyErr?.response?.data?.error || 'Failed to import LinkedIn PDF';
+            showNotification('error', message);
         }
     };
 
     return (
-        <div className="flex h-screen w-full bg-gray-50">
+        <div className="flex h-full min-h-0 w-full bg-gray-50 flex-col lg:flex-row">
             {/* Toast Notifications */}
             <Toast />
 
@@ -134,12 +171,45 @@ export const ResumeEditor: React.FC = () => {
             {/* History Panel */}
             <HistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} />
 
+            {/* Mobile view toggle */}
+            <div className="lg:hidden px-4 pt-4">
+                <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => setMobileView('edit')}
+                        className={[
+                            'px-3 py-1.5 rounded-md text-sm font-medium transition',
+                            mobileView === 'edit' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100',
+                        ].join(' ')}
+                    >
+                        Edit
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobileView('preview')}
+                        className={[
+                            'px-3 py-1.5 rounded-md text-sm font-medium transition',
+                            mobileView === 'preview' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100',
+                        ].join(' ')}
+                    >
+                        Preview
+                    </button>
+                </div>
+            </div>
+
             {/* LEFT PANEL: EDITOR */}
-            <div className="w-1/2 h-full flex flex-col border-r border-gray-200 bg-white">
-                <header className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white z-10 shrink-0">
-                    <div className="flex items-center gap-4">
+            <div
+                className={[
+                    'w-full lg:w-1/2 h-full min-h-0 flex flex-col border-gray-200 bg-white',
+                    'lg:border-r',
+                    mobileView === 'edit' ? 'flex' : 'hidden',
+                    'lg:flex',
+                ].join(' ')}
+            >
+                <header className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white z-10 shrink-0">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         <button
-                            onClick={() => navigate('/dashboard')}
+                            onClick={() => navigate(getRoleHomePath(user?.role))}
                             className="bg-white border border-gray-200 p-2 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition text-gray-600 shadow-sm"
                             title="Back to Dashboard"
                         >
@@ -149,7 +219,7 @@ export const ResumeEditor: React.FC = () => {
                         <div className="h-6 w-px bg-gray-200"></div>
 
                         <select
-                            className="bg-transparent text-sm font-medium text-gray-700 border-none outline-none cursor-pointer hover:text-gray-900"
+                            className="bg-transparent text-sm font-medium text-gray-700 border-none outline-none cursor-pointer hover:text-gray-900 truncate max-w-[220px] sm:max-w-none"
                             value={resume.meta?.templateId || 'standard'}
                             onChange={(e) => updateTemplate(e.target.value)}
                         >
@@ -159,10 +229,73 @@ export const ResumeEditor: React.FC = () => {
                             <option value="professional">Professional Template</option>
                             <option value="executive">Executive Template</option>
                             <option value="creative">Creative Template</option>
+                            {availableTemplates.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} (Dynamic)</option>
+                            ))}
                         </select>
                     </div>
 
-                    <div className="flex items-center gap-3">
+
+
+                    <div className="flex items-center gap-2 sm:gap-3 relative flex-wrap justify-end">
+                        {/* Share Menu */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowShareMenu(!showShareMenu)}
+                                className={`p-2 rounded-lg transition ${isPublic ? 'text-green-600 bg-green-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                                title="Share Resume"
+                            >
+                                <Share2 className="w-5 h-5" />
+                            </button>
+
+                            {showShareMenu && (
+                                <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-100 p-4 z-50">
+                                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                        <Globe className="w-4 h-4" /> Share to Web
+                                    </h3>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <span className="text-sm text-gray-600">Public Access</span>
+                                        <button
+                                            onClick={() => togglePublic(!isPublic)}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isPublic ? 'bg-green-500' : 'bg-gray-200'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${isPublic ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
+                                    </div>
+
+                                    {isPublic && shareKey && (
+                                        <div className="bg-gray-50 p-2 rounded border border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-1">Public Link</p>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    readOnly
+                                                    value={`${window.location.origin}/cv/${shareKey}`}
+                                                    className="text-xs w-full bg-transparent outline-none text-gray-700"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(`${window.location.origin}/cv/${shareKey}`);
+                                                        showNotification('success', 'Link copied!');
+                                                    }}
+                                                    className="p-1 hover:bg-gray-200 rounded"
+                                                >
+                                                    <Copy className="w-3 h-3 text-gray-500" />
+                                                </button>
+                                            </div>
+                                            <a
+                                                href={`/cv/${shareKey}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="block mt-2 text-center text-xs text-blue-600 hover:underline"
+                                            >
+                                                Open Link
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
                         <button
                             onClick={() => setShowHistory(true)}
                             className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
@@ -198,8 +331,8 @@ export const ResumeEditor: React.FC = () => {
                     </div>
                 </header>
 
-                <div className="flex flex-1 overflow-hidden">
-                    <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex flex-1 min-h-0 overflow-hidden">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
                         <div className="max-w-3xl mx-auto space-y-6">
                             {/* ANALYSIS PANEL (Top of editor) */}
                             <AnalysisPanel />
@@ -312,15 +445,22 @@ export const ResumeEditor: React.FC = () => {
             </div>
 
             {/* RIGHT PANEL: PREVIEW */}
-            <div className="w-1/2 h-full bg-gray-800 flex flex-col">
+            <div
+                className={[
+                    'w-full lg:w-1/2 h-full min-h-0 bg-gray-800 flex flex-col',
+                    mobileView === 'preview' ? 'flex' : 'hidden',
+                    'lg:flex',
+                ].join(' ')}
+            >
                 <div className="p-4 bg-gray-800 text-white flex justify-between items-center border-b border-gray-700">
                     <span className="font-medium text-gray-300">Live Preview</span>
                 </div>
-                <div className="flex-1 p-8 overflow-hidden relative">
+                <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-hidden relative">
                     <PDFPreview
                         url={instance.url}
                         loading={instance.loading}
                         error={instance.error ? new Error(instance.error.toString()) : null}
+                        downloadFileName={downloadFileName}
                     />
                 </div>
             </div>
