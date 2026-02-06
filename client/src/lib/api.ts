@@ -137,6 +137,19 @@ export const analyzeResume = async (resumeContent: ResumeSchema): Promise<Analys
     return response.data;
 };
 
+export interface JobFitResult {
+    score: number;
+    summary: string;
+    matchingKeywords: string[];
+    missingKeywords: string[];
+    recommendedFocus: string;
+}
+
+export const analyzeJobFit = async (resumeContent: ResumeSchema, jobDescription: string): Promise<JobFitResult> => {
+    const response = await api.post('/ai/job-fit', { resume: resumeContent, jobDescription });
+    return response.data;
+};
+
 // --- EMAIL VERIFICATION ---
 export const verifyEmail = async (token: string) => {
     const response = await api.get(`/auth/verify-email?token=${token}`);

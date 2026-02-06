@@ -110,3 +110,49 @@ export const parseResumeText = async (text: string) => {
         throw new Error('Failed to parse resume text');
     }
 };
+
+export const analyzeJobFit = async (resumeContent: any, jobDescription: string) => {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+        throw new Error('OPENROUTER_API_KEY is not configured in .env');
+    }
+
+    const openai = new OpenAI({
+        apiKey,
+        baseURL: 'https://openrouter.ai/api/v1',
+    });
+
+    try {
+        const completion = await openai.chat.completions.create({
+            model: config.ai.defaultModel,
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are an expert ATS (Applicant Tracking System) specialist and technical recruiter.
+                    Compare the provided Resume JSON against the Job Description.
+
+                    Return valid JSON with this structure:
+                    {
+                        "score": number (0-100),
+                        "summary": "Brief analysis of fit",
+                        "matchingKeywords": ["string"],
+                        "missingKeywords": ["string"],
+                        "recommendedFocus": "What to emphasize to improve fit"
+                    }
+                    Do not include markdown. Just return raw JSON.`
+                },
+                {
+                    role: 'user',
+                    content: `RESUME: ${JSON.stringify(resumeContent)}\n\nJOB DESCRIPTION: ${jobDescription}`
+                }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        const result = completion.choices[0].message.content;
+        return JSON.parse(result || '{}');
+    } catch (error) {
+        console.error('Job Fit Analysis Error:', error);
+        throw new Error('Failed to analyze job fit');
+    }
+};
