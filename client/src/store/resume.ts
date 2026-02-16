@@ -45,6 +45,7 @@ interface ResumeState {
     // Sharing
     isPublic: boolean;
     shareKey: string | null;
+    viewCount: number;
     togglePublic: (isPublic: boolean) => Promise<void>;
 }
 
@@ -215,23 +216,12 @@ export const useResumeStore = create<ResumeState>()(
         isSaving: false,
         saveToBackend: async () => {
             const state = get();
-            // Get user from auth store if available
-            const authStorage = localStorage.getItem('cv-maker-auth');
-            const userId = authStorage ? JSON.parse(authStorage)?.state?.user?.id : null;
-
-            if (!userId) {
-                set((s) => {
-                    s.notification = { type: 'error', message: 'Please log in to save your resume' };
-                });
-                return;
-            }
-
             set((s) => { s.isSaving = true; });
             try {
                 if (state.backendId) {
                     await api.updateResume(state.backendId, { content: state.resume });
                 } else {
-                    const result = await api.saveResume(userId, state.resume);
+                    const result = await api.saveResume(state.resume);
                     set((s) => { s.backendId = result.data.id; });
                 }
                 set((s) => {
@@ -255,6 +245,7 @@ export const useResumeStore = create<ResumeState>()(
                     s.backendId = data.id;
                     s.isPublic = data.isPublic;
                     s.shareKey = data.shareKey || null;
+                    s.viewCount = data.viewCount || 0;
                     s.isSaving = false;
                     s.notification = { type: 'success', message: 'Resume loaded!' };
                 });
@@ -279,6 +270,7 @@ export const useResumeStore = create<ResumeState>()(
                 state.dynamicTemplateConfig = null;
                 state.isPublic = false;
                 state.shareKey = null;
+                state.viewCount = 0;
             }),
 
         // Dynamic Templates
@@ -308,6 +300,7 @@ export const useResumeStore = create<ResumeState>()(
         // Sharing
         isPublic: false,
         shareKey: null,
+        viewCount: 0,
         togglePublic: async (isPublic) => {
             const state = get();
             if (!state.backendId) {

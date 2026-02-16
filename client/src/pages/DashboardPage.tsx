@@ -8,6 +8,20 @@ import * as api from '../lib/api';
 import type { Resume } from '../types/resume';
 import { Toast } from '../components/ui/Toast';
 
+const ResumeCardSkeleton: React.FC = () => (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-pulse">
+        <div className="h-40 bg-gray-100" />
+        <div className="p-4 space-y-3">
+            <div className="h-4 bg-gray-200 rounded w-3/4" />
+            <div className="h-3 bg-gray-100 rounded w-1/2" />
+            <div className="flex gap-2 pt-2">
+                <div className="h-8 bg-gray-100 rounded flex-1" />
+                <div className="h-8 bg-gray-100 rounded flex-1" />
+            </div>
+        </div>
+    </div>
+);
+
 export const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
     const { showNotification } = useResumeStore();
@@ -17,12 +31,10 @@ export const DashboardPage: React.FC = () => {
 
     const userId = useMemo(() => user?.id ?? null, [user?.id]);
 
-    // Fetch Resumes
     const fetchResumes = async () => {
-        if (!userId) return;
         setIsLoading(true);
         try {
-            const data = await api.getUserResumes(userId);
+            const data = await api.getUserResumes();
             setResumes(data);
         } catch (error) {
             console.error(error);
@@ -33,22 +45,10 @@ export const DashboardPage: React.FC = () => {
     };
 
     useEffect(() => {
-        if (userId) {
-            fetchResumes();
-        }
-    }, [userId]);
+        fetchResumes();
+    }, []);
 
     const handleCreateNew = () => {
-        // Reset store state for new resume
-        // We might want to clear the store here or rely on ResumeEditor to clear it if no ID is passed.
-        // For now, let's manually reset key parts or trust the user wants a fresh start.
-        // A better approach is to have a clearResume() action in the store.
-        // But navigating to /editor (no ID) implies new.
-
-        // Let's quickly reset the store to defaults to be safe
-        // Actually, we can just navigate. The Editor *should* initialize efficiently.
-        // But if the store persists in memory, we need to clear it.
-        // I will navigate to /editor and rely on mounting logic there (which I will add next)
         navigate('/editor');
     };
 
@@ -66,18 +66,13 @@ export const DashboardPage: React.FC = () => {
     };
 
     const handleDuplicate = async (resume: Resume) => {
-        if (!userId) return;
         try {
-            // Create a copy locally and save it
-            // Or better, fetch full content if we don't have it (we have it in 'resume.content')
             const copyContent = { ...resume.content };
             copyContent.profile.fullName = `${copyContent.profile.fullName} (Copy)`;
 
-            // We use the api.saveResume which expects the ResumeSchema
-            // Ideally we should have a duplicate endpoint, but client-side duplication works for now
-            await api.saveResume(userId, copyContent);
+            await api.saveResume(copyContent);
             showNotification('success', 'Resume duplicated');
-            fetchResumes(); // Reload list
+            fetchResumes();
         } catch (error) {
             console.error(error);
             showNotification('error', 'Failed to duplicate resume');
@@ -91,26 +86,24 @@ export const DashboardPage: React.FC = () => {
             <Toast />
             <div className="max-w-6xl mx-auto space-y-8">
                 {/* Header */}
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">My Resumes</h1>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Resumes</h1>
                         <p className="text-gray-500 mt-1">Manage and organize your CVs</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={handleCreateNew}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm font-medium"
-                        >
-                            <Plus className="w-5 h-5" />
-                            Create New Resume
-                        </button>
-                    </div>
+                    <button
+                        onClick={handleCreateNew}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm font-medium sm:w-auto w-full"
+                    >
+                        <Plus className="w-5 h-5" />
+                        Create New Resume
+                    </button>
                 </div>
 
                 {/* Content */}
                 {isLoading ? (
-                    <div className="flex justify-center items-center h-64">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {[...Array(3)].map((_, i) => <ResumeCardSkeleton key={i} />)}
                     </div>
                 ) : resumes.length === 0 ? (
                     <div className="text-center py-20 bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -129,7 +122,7 @@ export const DashboardPage: React.FC = () => {
                         </button>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {resumes.map((resume) => (
                             <ResumeCard
                                 key={resume.id}

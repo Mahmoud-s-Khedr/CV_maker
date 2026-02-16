@@ -10,8 +10,14 @@ import paymentRoutes from './routes/payment.routes';
 import adminRoutes from './routes/admin.routes';
 import templateRoutes from './routes/template.routes';
 import recruiterRoutes from './routes/recruiter.routes';
+import twofaRoutes from './routes/twofa.routes';
+import notificationRoutes from './routes/notification.routes';
+import reviewRoutes from './routes/review.routes';
+import jobRoutes from './routes/job.routes';
+import { initScheduler } from './jobs/scheduler';
 import logger, { logError, logInfo } from './utils/logger';
 import requestLogger from './middleware/requestLogger';
+import { generalLimiter } from './middleware/rateLimiter';
 
 const app = express();
 
@@ -26,6 +32,9 @@ app.use(express.json());
 // Request logging middleware
 app.use(requestLogger);
 
+// General rate limiting (applied to all API routes)
+app.use('/api', generalLimiter);
+
 // Routes
 app.use('/api/resumes', resumeRoutes);
 app.use('/api/import', importRoutes);
@@ -35,6 +44,10 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/recruiter', recruiterRoutes);
+app.use('/api/auth/2fa', twofaRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api', reviewRoutes);
+app.use('/api/jobs', jobRoutes);
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -58,4 +71,5 @@ app.listen(config.server.port, () => {
         logLevel: process.env.LOG_LEVEL || 'info'
     });
     console.log(`Server running on port ${config.server.port} (${config.env})`);
+    initScheduler();
 });

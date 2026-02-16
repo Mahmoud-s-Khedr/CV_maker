@@ -32,6 +32,10 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
 
             if (isLogin) {
                 const result = await api.login(data);
+                if (result.requiresTwoFactor) {
+                    navigate('/2fa-verify', { state: { tempToken: result.tempToken }, replace: true });
+                    return;
+                }
                 login(result.token, result.user);
                 navigate(from, { replace: true });
             } else {
@@ -74,6 +78,10 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
     const handleGoogleSuccess = async (credentialResponse: any) => {
         try {
             const result = await api.googleLogin(credentialResponse.credential);
+            if (result.requiresTwoFactor) {
+                navigate('/2fa-verify', { state: { tempToken: result.tempToken }, replace: true });
+                return;
+            }
             login(result.token, result.user);
             navigate(from, { replace: true });
         } catch (err) {
@@ -214,9 +222,16 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
                                         />
                                     </div>
                                     <div className="group">
-                                        <label className="block text-xs font-semibold text-slate-600 mb-1 ml-1 transition-colors group-focus-within:text-blue-600">
-                                            Password
-                                        </label>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-xs font-semibold text-slate-600 ml-1 transition-colors group-focus-within:text-blue-600">
+                                                Password
+                                            </label>
+                                            {isLogin && (
+                                                <Link to="/forgot-password" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                                                    Forgot password?
+                                                </Link>
+                                            )}
+                                        </div>
                                         <input
                                             type="password"
                                             autoComplete="current-password"

@@ -6,7 +6,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import config from '../config/config';
-import { sendVerificationEmail } from '../services/email.service';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
 import logger, { logError, logInfo, logWarn } from '../utils/logger';
 
 const googleClient = new OAuth2Client(config.auth.googleClientId);
@@ -145,6 +145,18 @@ export const login = async (req: Request, res: Response) => {
             return;
         }
 
+        // Check if 2FA is enabled
+        if (user.twoFactorEnabled) {
+            const tempToken = jwt.sign(
+                { userId: user.id, purpose: '2fa' },
+                config.auth.jwtSecret,
+                { expiresIn: '5m' }
+            );
+            logInfo('2FA required for login', { userId: user.id });
+            res.json({ requiresTwoFactor: true, tempToken });
+            return;
+        }
+
         const token = generateToken(user.id, user.email, user.role);
         logInfo('User logged in successfully', { userId: user.id });
 
@@ -256,6 +268,93 @@ export const resendVerification = async (req: Request, res: Response) => {
     }
 };
 
+// FORGOT PASSWORD
+export const forgotPassword = async (req: Request, res: Response) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            res.status(400).json({ error: 'Email is required' });
+            return;
+        }
+
+        const user = await prisma.user.findUnique({ where: { email } });
+
+        // Always respond with the same message to prevent email enumeration
+        if (!user || !user.password) {
+            res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+            return;
+        }
+
+        const resetToken = generateVerificationToken();
+        const resetExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { resetToken, resetExpiry },
+        });
+
+        const emailResult = await sendPasswordResetEmail(email, resetToken);
+        if (!emailResult.success) {
+            logError(new Error('Failed to send password reset email'), { email, error: emailResult.error });
+        }
+
+        logInfo('Password reset requested', { userId: user.id });
+        res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+
+    } catch (error) {
+        logError(error as Error, { context: 'forgotPassword' });
+        res.status(500).json({ error: 'Failed to process password reset request.' });
+    }
+};
+
+// RESET PASSWORD
+export const resetPassword = async (req: Request, res: Response) => {
+    try {
+        const { token, newPassword } = req.body;
+
+        if (!token || !newPassword) {
+            res.status(400).json({ error: 'Token and new password are required' });
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            res.status(400).json({ error: 'Password must be at least 6 characters' });
+            return;
+        }
+
+        const user = await prisma.user.findUnique({ where: { resetToken: token } });
+
+        if (!user || !user.resetExpiry) {
+            res.status(400).json({ error: 'Invalid or expired reset token' });
+            return;
+        }
+
+        if (user.resetExpiry < new Date()) {
+            res.status(400).json({ error: 'Reset token has expired. Please request a new one.' });
+            return;
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                password: hashedPassword,
+                resetToken: null,
+                resetExpiry: null,
+            },
+        });
+
+        logInfo('Password reset successfully', { userId: user.id });
+        res.json({ message: 'Password reset successfully. You can now log in.' });
+
+    } catch (error) {
+        logError(error as Error, { context: 'resetPassword' });
+        res.status(500).json({ error: 'Failed to reset password.' });
+    }
+};
+
 // GOOGLE AUTH
 export const googleAuth = async (req: Request, res: Response) => {
     try {
@@ -310,6 +409,18 @@ export const googleAuth = async (req: Request, res: Response) => {
             logInfo('Existing user linked Google account', { userId: user.id });
         }
 
+        // Check if 2FA is enabled for Google auth users
+        if (user.twoFactorEnabled) {
+            const tempToken = jwt.sign(
+                { userId: user.id, purpose: '2fa' },
+                config.auth.jwtSecret,
+                { expiresIn: '5m' }
+            );
+            logInfo('2FA required for Google login', { userId: user.id });
+            res.json({ requiresTwoFactor: true, tempToken });
+            return;
+        }
+
         const token = generateToken(user.id, user.email, user.role);
         res.json({
             token,
@@ -328,5 +439,24 @@ export const googleAuth = async (req: Request, res: Response) => {
             error: 'Google Auth Failed',
             details: process.env.NODE_ENV !== 'production' ? (error as Error).message : undefined
         });
+    }
+};
+
+// GET /api/auth/me — returns the authenticated user's profile (used by the browser extension popup)
+export const getMe = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as any).user as { userId: string };
+        const user = await prisma.user.findUnique({
+            where: { id: authUser.userId },
+            select: { id: true, email: true, role: true, isPremium: true, twoFactorEnabled: true, avatar: true },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        res.json(user);
+    } catch (error) {
+        logError(error as Error, { context: 'getMe' });
+        res.status(500).json({ error: 'Failed to fetch user' });
     }
 };

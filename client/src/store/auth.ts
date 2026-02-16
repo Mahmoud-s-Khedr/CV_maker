@@ -9,6 +9,7 @@ interface User {
     role: string;
     isPremium: boolean;
     avatar?: string;
+    twoFactorEnabled?: boolean;
 }
 
 interface AuthState {

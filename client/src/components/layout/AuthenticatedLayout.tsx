@@ -36,6 +36,8 @@ export const AuthenticatedLayout: React.FC = () => {
             { to: '/payment', label: 'Upgrade', show: !isPremium },
             { to: '/recruiter', label: 'Talent Search', show: isRecruiter },
             { to: '/admin', label: 'Admin', show: isAdmin },
+            { to: '/jobs', label: 'Job Tracker', show: true },
+            { to: '/settings', label: 'Settings', show: true },
         ];
     }, [role, user?.isPremium]);
 

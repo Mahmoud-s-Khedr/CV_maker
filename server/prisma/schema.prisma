@@ -27,10 +27,17 @@ model User {
   paymobOrderId      String?   @unique // For pending/completed order tracking
   stripeCustomerId   String?   @unique
   isPremium          Boolean   @default(false)
-  resumes            Resume[]
-  auditLogs          AuditLog[]
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  resetToken         String?   @unique
+  resetExpiry        DateTime?
+  totpSecret         String?
+  twoFactorEnabled       Boolean   @default(false)
+  premiumExpiresAt       DateTime?
+  resumes                Resume[]
+  auditLogs              AuditLog[]
+  notificationPreference NotificationPreference?
+  jobApplications        JobApplication[]
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 model Template {
@@ -54,16 +61,20 @@ model AuditLog {
 
 
 model Resume {
-  id        String   @id @default(cuid())
-  title     String   @default("Untitled Resume")
-  content   Json
-  isPublic  Boolean  @default(false)
-  shareKey  String?  @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  versions  ResumeVersion[]
+  id           String    @id @default(cuid())
+  title        String    @default("Untitled Resume")
+  content      Json
+  isPublic     Boolean   @default(false)
+  shareKey     String?   @unique
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  versions        ResumeVersion[]
+  reviewSessions  ReviewSession[]
+  jobApplications JobApplication[]
 
   @@index([userId])
 }
@@ -76,4 +87,66 @@ model ResumeVersion {
   createdAt DateTime @default(now())
 
   @@index([resumeId])
+}
+
+model ReviewSession {
+  id        String   @id @default(cuid())
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  token     String   @unique @default(cuid())
+  expiresAt DateTime
+  name      String?
+  comments  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([resumeId])
+}
+
+model NotificationPreference {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resumeViewed         Boolean  @default(true)
+  weeklyDigest         Boolean  @default(true)
+  subscriptionReminder Boolean  @default(true)
+  accountActivity      Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model NotificationLog {
+  id     String   @id @default(uuid())
+  userId String
+  type   String
+  sentAt DateTime @default(now())
+
+  @@index([userId, type, sentAt])
+}
+
+enum ApplicationStatus {
+  SAVED
+  APPLIED
+  INTERVIEW
+  OFFER
+  REJECTED
+}
+
+model JobApplication {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resumeId  String?
+  resume    Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
+  jobTitle  String
+  company   String
+  url       String?
+  status    ApplicationStatus @default(SAVED)
+  notes     String?
+  salary    String?
+  appliedAt DateTime?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([userId, status])
 }

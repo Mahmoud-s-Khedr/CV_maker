@@ -29,6 +29,11 @@ Authentication is **JWT bearer token** based.
 - Client sends: `Authorization: Bearer <token>`
 - Token payload includes: `userId`, `email`, `role`
 
+### 2.0 Current User
+- `GET /api/auth/me` (protected)
+  - Returns: `{ id, email, role, isPremium, twoFactorEnabled, avatar? }`
+  - Used by the browser extension popup to verify the stored JWT and show user info
+
 ### 2.1 Email/Password Registration + Verification
 - `POST /api/auth/register`
   - Body: `{ email: string, password: string, role?: "USER" | "RECRUITER" }`
@@ -131,6 +136,17 @@ The backend proxies AI requests to OpenRouter using the OpenAI SDK.
   - Response:
     - `{ success: true, data: ProjectItem[] }`
 
+### 5.3 LinkedIn Extension Import
+- `POST /api/import/linkedin-extension` (protected)
+  - Body: `{ profileData: LinkedInScrapedProfile }`
+    - `LinkedInScrapedProfile`: `{ fullName, headline, location, summary, experience[], education[], skills[] }`
+  - Behavior:
+    - Maps scraped DOM data to a full `ResumeSchema` (experience, education, skills sections)
+    - Parses LinkedIn date ranges (e.g. "Jan 2020 – Present") into `startDate`/`endDate`
+    - Creates a `Resume` record owned by the authenticated user
+  - Response: `{ resumeId: string, title: string }`
+  - Used by the browser extension (service worker proxies the call)
+
 ## 6) Templates (`/api/templates`)
 
 Templates support a hybrid approach:
@@ -214,9 +230,57 @@ Commonly required env vars:
 - `APP_URL`
 - `PAYMOB_API_KEY`, `PAYMOB_INTEGRATION_ID`, `PAYMOB_FRAME_ID`, `PAYMOB_HMAC_SECRET`
 
-## 11) Known Gaps / Hardening TODOs
+## 11) Two-Factor Authentication (`/api/auth/2fa`)
 
-These are not hypothetical—they reflect current code behavior:
-- Resume CRUD routes are not yet protected by auth/ownership checks.
+All endpoints protected by `authenticate`.
+
+- `POST /api/auth/2fa/setup` — generates a TOTP secret + QR code URI for the user
+- `POST /api/auth/2fa/verify` — confirms the setup by validating a 6-digit code; sets `twoFactorEnabled=true`
+- `POST /api/auth/2fa/disable` — disables 2FA after verifying a current code
+- `POST /api/auth/2fa/validate` — used during login: accepts a temp JWT (`purpose:'2fa'`) + a 6-digit code; returns a full session JWT on success
+
+**Login flow with 2FA:**
+1. `POST /api/auth/login` — if `twoFactorEnabled`, returns `{ requiresTwoFactor: true, tempToken }` instead of a full JWT
+2. Client redirects to `/2fa-verify`, which calls `POST /api/auth/2fa/validate`
+3. On success, full `{ token, user }` returned
+
+## 12) Notification Preferences (`/api/notifications`)
+
+Protected by `authenticate`.
+
+- `GET /api/notifications/preferences` — returns `{ resumeViewed, weeklyDigest, subscriptionReminder, accountActivity }`
+- `PATCH /api/notifications/preferences` — updates one or more boolean preference flags
+
+**Background jobs** (`server/src/jobs/scheduler.ts`):
+- Weekly digest: every Sunday at 09:00 — sends a summary of resume views from the past 7 days
+- Subscription reminders: daily check — emails users whose `premiumExpiresAt` is within 3 days
+
+## 13) Review Sessions (`/api`)
+
+### Owner endpoints (protected)
+- `POST /api/resumes/:id/review-sessions` — creates a `ReviewSession` with token + expiry date
+- `GET /api/resumes/:id/review-sessions` — lists active sessions for a resume
+- `DELETE /api/review-sessions/:sessionId` — deletes a session
+
+### Public endpoints (no auth required)
+- `GET /api/review/:token` — fetch session + resume (read-only); validates expiry
+- `POST /api/review/:token/comments` — add a comment (stored in JSON array)
+- `PATCH /api/review/:token/comments/:commentId` — resolve a comment
+
+## 14) Job Applications (`/api/jobs`)
+
+All endpoints protected by `authenticate`. Ownership enforced on all operations.
+
+- `POST /api/jobs` — create a job application; validates with `createJobSchema`
+  - Body: `{ jobTitle, company, url?, status?, notes?, salary?, appliedAt?, resumeId? }`
+- `GET /api/jobs` — list applications; optional `?status=` filter
+- `GET /api/jobs/stats` — aggregated counts by status
+- `GET /api/jobs/:id` — fetch single application
+- `PATCH /api/jobs/:id` — update fields; validates with `updateJobSchema`
+- `DELETE /api/jobs/:id` — delete application
+
+## 15) Known Gaps / Hardening TODOs
+
 - Payment initiation requires Paymob env vars; without them it will fail at runtime.
 - Recruiter search is currently basic title matching; JSONB deep search is not implemented.
+- No Stripe webhook handler yet (Stripe service exists but checkout flow is not wired).

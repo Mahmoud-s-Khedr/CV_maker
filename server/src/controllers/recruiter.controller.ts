@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { logError } from '../utils/logger';
+import { notifyResumeViewed } from '../services/notification.service';
 
 // GET /api/recruiter/search
 // Search public resumes by query (matches job title, skills, or location in content)
@@ -134,6 +135,15 @@ export const getPublicResume = async (req: Request, res: Response) => {
             res.status(404).json({ error: 'Resume not found or is private' });
             return;
         }
+
+        // Increment view count (fire-and-forget)
+        prisma.resume.update({
+            where: { id: resume.id },
+            data: { viewCount: { increment: 1 }, lastViewedAt: new Date() },
+        }).catch(() => {});
+
+        // Notify resume owner (fire-and-forget)
+        notifyResumeViewed(resume.id, resume.viewCount + 1).catch(() => {});
 
         // Return the full content for rendering
         res.json(resume);

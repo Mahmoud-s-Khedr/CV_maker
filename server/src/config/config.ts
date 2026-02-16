@@ -62,12 +62,11 @@ export const config = {
         appUrl: getOptionalEnvVar('APP_URL', 'http://localhost:5173'),
     },
 
-    // Payments (Paymob)
-    paymob: {
-        apiKey: getOptionalEnvVar('PAYMOB_API_KEY'),
-        integrationId: getOptionalEnvVar('PAYMOB_INTEGRATION_ID'),
-        frameId: getOptionalEnvVar('PAYMOB_FRAME_ID'),
-        hmacSecret: getOptionalEnvVar('PAYMOB_HMAC_SECRET'),
+    // Payments (Stripe)
+    stripe: {
+        secretKey: getOptionalEnvVar('STRIPE_SECRET_KEY'),
+        webhookSecret: getOptionalEnvVar('STRIPE_WEBHOOK_SECRET'),
+        clientUrl: getOptionalEnvVar('CLIENT_URL', 'http://localhost:5173'),
     },
 
     // AI / OpenRouter

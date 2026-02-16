@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import config from '../config/config';
+import { prisma } from '../lib/prisma';
 
-interface AuthRequest extends Request {
+export interface AuthRequest extends Request {
     user?: {
         userId: string;
         email: string;
@@ -32,6 +33,27 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
         res.status(401).json({ error: 'Invalid token' });
         return;
     }
+};
+
+export const requirePremium = async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as AuthRequest).user;
+
+    if (!user) {
+        res.status(401).json({ error: 'User not authenticated' });
+        return;
+    }
+
+    const dbUser = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { isPremium: true },
+    });
+
+    if (!dbUser?.isPremium) {
+        res.status(403).json({ error: 'Premium subscription required' });
+        return;
+    }
+
+    next();
 };
 
 export const authorize = (roles: string[]) => {

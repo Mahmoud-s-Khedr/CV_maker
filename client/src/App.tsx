@@ -9,7 +9,14 @@ import { PublicResume } from './pages/PublicResume';
 import { Portfolio } from './pages/Portfolio';
 import { AuthPage } from './pages/AuthPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { TwoFactorPage } from './pages/TwoFactorPage';
+import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { PaymentPage } from './pages/PaymentPage';
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage';
+import { ReviewPage } from './pages/ReviewPage';
+import { JobTrackerPage } from './pages/JobTrackerPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthenticatedLayout } from './components/layout/AuthenticatedLayout';
 
@@ -30,6 +37,9 @@ function App() {
           <Route path="/login" element={<AuthPage type="login" />} />
           <Route path="/register" element={<AuthPage type="register" />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/2fa-verify" element={<TwoFactorPage />} />
 
           {/* Protected Routes (with shared layout) */}
           <Route element={
@@ -41,6 +51,9 @@ function App() {
             <Route path="/editor" element={<ResumeEditor />} />
             <Route path="/editor/:id" element={<ResumeEditor />} />
             <Route path="/payment" element={<PaymentPage />} />
+            <Route path="/payment/success" element={<PaymentSuccessPage />} />
+            <Route path="/settings" element={<AccountSettingsPage />} />
+            <Route path="/jobs" element={<JobTrackerPage />} />
 
             <Route
               path="/admin"
@@ -63,6 +76,7 @@ function App() {
 
           <Route path="/cv/:shareKey" element={<PublicResume />} />
           <Route path="/p/:shareKey" element={<Portfolio />} />
+          <Route path="/review/:token" element={<ReviewPage />} />
 
           {/* Redirect unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />

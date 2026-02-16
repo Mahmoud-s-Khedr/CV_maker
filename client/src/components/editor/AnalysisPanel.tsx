@@ -1,16 +1,25 @@
 import React, { useState } from 'react';
 import { useResumeStore } from '../../store/resume';
+import { useAuthStore } from '../../store/auth';
 import { analyzeResume, analyzeJobFit } from '../../lib/api';
+import { UpgradeModal } from '../UpgradeModal';
 
 export const AnalysisPanel: React.FC = () => {
     const { resume } = useResumeStore();
+    const { user } = useAuthStore();
     const [analysis, setAnalysis] = useState<any>(null);
     const [jobDescription, setJobDescription] = useState<string>('');
     const [mode, setMode] = useState<'general' | 'jobFit'>('general');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showUpgrade, setShowUpgrade] = useState(false);
 
     const handleAnalyze = async () => {
+        if (!user?.isPremium) {
+            setShowUpgrade(true);
+            return;
+        }
+
         setLoading(true);
         setError(null);
         try {
@@ -32,6 +41,7 @@ export const AnalysisPanel: React.FC = () => {
     if (!analysis && !loading && !error) {
         return (
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-6 mb-6">
+                <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} feature="AI Resume Analysis" />
                 <div>
                     <h2 className="text-lg font-bold text-gray-800">AI Resume Analysis</h2>
                     <p className="text-sm text-gray-600 mt-1 mb-4">

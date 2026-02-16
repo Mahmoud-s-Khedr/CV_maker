@@ -65,74 +65,101 @@ Mounted in `server/src/app.ts`.
 
 ### Authentication (`/api/auth`)
 - `POST /register` (email/password; role limited to `USER` or `RECRUITER`)
-- `POST /login` (blocked if `isEmailVerified=false`)
+- `POST /login` (blocked if `isEmailVerified=false`; returns `requiresTwoFactor` if 2FA enabled)
 - `GET /verify-email?token=...`
 - `POST /resend-verification`
 - `POST /google` (Google ID token; auto-verifies email)
+- `POST /forgot-password`, `POST /reset-password`
+- `GET /me` (protected) — returns current user profile; used by browser extension popup
 
-### Resumes (`/api/resumes`)
-- `POST /` create resume (currently expects `userId` in body)
+### Two-Factor Authentication (`/api/auth/2fa`) (protected)
+- `POST /setup` — generate TOTP secret + QR code URI
+- `POST /verify` — confirm setup with first code → enables 2FA
+- `POST /disable` — disable with current code
+- `POST /validate` — exchange temp JWT + OTP for a full session JWT (called from `/2fa-verify` page)
+
+### Resumes (`/api/resumes`) (protected, ownership enforced)
+- `POST /` create resume
 - `GET /:id` fetch one
-- `PATCH /:id` update resume
-    - auto-creates a `ResumeVersion` snapshot before updating
-    - if `isPublic=true` and no `shareKey`, generates a share key
-- `GET /user/:userId` list resumes by user (currently via URL param)
+- `PATCH /:id` update resume (auto-versions, generates share key on first public)
+- `GET /user/me` list current user's resumes
 - `DELETE /:id` delete resume
-- `POST /:id/versions` create version (expects `{ content }`)
-- `GET /:id/versions` list versions
+- `POST /:id/versions`, `GET /:id/versions` — version history
+- `POST /:id/review-sessions` — create a collaborative review session
+- `GET /:id/review-sessions` — list review sessions
 
-> Note: resume routes are not currently protected by `authenticate` middleware (there are TODOs in the controllers). This is the current state, not the intended final security posture.
+### Review Sessions (`/api/review`) (public — no auth for reviewer)
+- `GET /review/:token` — fetch session + resume (validates expiry)
+- `POST /review/:token/comments` — add comment
+- `PATCH /review/:token/comments/:commentId` — resolve comment
 
-### Import (`/api/import`)
-- `POST /linkedin` (multipart `file`; parses PDF text via `pdf-parse`, then uses AI to extract profile fields)
+### Import (`/api/import`) (protected)
+- `POST /linkedin` (multipart `file`; parses PDF via `pdf-parse` + AI extraction)
 - `POST /github` (`{ username }` -> returns public repo data)
+- `POST /linkedin-extension` (`{ profileData }` -> maps DOM-scraped data → `ResumeSchema` → creates Resume; used by browser extension)
 
-### AI (`/api/ai`)
-- `POST /analyze` (`{ content }` -> returns analysis JSON)
+### AI (`/api/ai`) (protected + requirePremium)
+- `POST /analyze` (`{ content }` -> returns `{ score, summary, strengths, weaknesses, suggestions }`)
+- `POST /job-fit` (`{ content, jobDescription }` -> tailored fit analysis)
 
 ### Templates (`/api/templates`)
 - `GET /` list templates (id/name/thumbnail/isPremium)
 - `GET /:id` fetch template (includes `config` JSON)
 
+### Job Applications (`/api/jobs`) (protected, ownership enforced)
+- `POST /` create application (Zod validated)
+- `GET /` list (optional `?status=` filter)
+- `GET /stats` aggregated counts by status
+- `GET /:id`, `PATCH /:id`, `DELETE /:id`
+
+### Notifications (`/api/notifications`) (protected)
+- `GET /preferences` — user notification settings
+- `PATCH /preferences` — update boolean preference flags
+
 ### Recruiter (`/api/recruiter`)
-- `GET /public/:shareKey` public resume fetch (requires `isPublic=true`)
+- `GET /public/:shareKey` public resume fetch (requires `isPublic=true`; increments view count)
 - `GET /search?q=...` protected search (`RECRUITER` or `ADMIN`)
-    - current implementation is a basic `title contains` search
-    - response is a “preview” object derived from `Resume.content.profile`
 
-### Admin (`/api/admin`) (protected)
-All routes require `authenticate` + `authorize(['ADMIN'])`.
-
-- `GET /users` list users
-- `DELETE /users/:id` delete a user
-- `GET /logs` audit log list
-- `POST /templates` create a template (writes to `Template`)
+### Admin (`/api/admin`) (protected, ADMIN role)
+- `GET /users`, `DELETE /users/:id`
+- `GET /logs`
+- `POST /templates`
 
 ### Payment (`/api/payment`)
-- `POST /initiate` protected (JWT required)
-    - returns `{ paymentKey, frameId }` for Paymob iframe
-- `POST /webhook?hmac=...` validates Paymob HMAC, upgrades user to `isPremium=true` on success
+- `POST /initiate` (protected) — returns `{ paymentKey, frameId }` for Paymob iframe
+- `POST /webhook?hmac=...` — validates Paymob HMAC, sets `isPremium=true` on success
 
-## 3. Technology Stack (as in `package.json`)
+## 3. Technology Stack
 
-### Frontend
-- React 19 + Vite
-- TypeScript
-- Tailwind CSS
+### Frontend (client/)
+- React 19 + Vite + TypeScript
+- Tailwind CSS v4
 - State: Zustand + Immer
-- Drag & drop: dnd-kit
+- Drag & drop: `@dnd-kit` (sections in editor + Kanban columns in job tracker)
 - PDF generation: `@react-pdf/renderer` (PDF creation) + `react-pdf` (viewer via pdf.js)
+- Forms: `react-hook-form`
 - Auth UI: `@react-oauth/google`
+- Icons: `lucide-react`
 
-### Backend
-- Node.js + Express 5
-- PostgreSQL 15 + Prisma
-- Auth: JWT bearer tokens (`Authorization: Bearer <token>`)
-- Email: Resend
+### Backend (server/)
+- Node.js + Express 5 + TypeScript
+- PostgreSQL 15 + Prisma ORM
+- Auth: JWT bearer tokens, bcrypt, `otplib` (TOTP), `qrcode`
+- Email: Resend (`email.service.ts`)
 - AI: OpenAI SDK targeting OpenRouter
-- Payments: Paymob
+- Payments: Paymob (primary), Stripe (service wired, checkout pending)
 - Uploads: Multer (memory storage) + `pdf-parse`
-- Observability: request logging middleware + Winston logger
+- Scheduler: `node-cron` (weekly digest + subscription reminders)
+- Validation: Zod + custom `validate` middleware
+- Rate limiting: `express-rate-limit`
+- Observability: Winston logger + `requestLogger` middleware
+
+### Browser Extension (extension/)
+- Manifest V3
+- React 19 + Vite + TypeScript (multi-entry build)
+- `@types/chrome` for browser extension APIs
+- No external UI library — inline styles to keep bundle small
+- All API calls proxied through the MV3 service worker (CORS-free)
 
 ## 4. Data Model & State Strategy
 
@@ -189,6 +216,17 @@ type ResumeSchema = {
 
 ## 5. Security & Operational Notes
 - HTTP headers: Helmet
-- CORS: configured via `CORS_ORIGINS` env var
+- CORS: configured via `CORS_ORIGINS` env var (comma-separated list)
 - Request logging: `requestLogger` logs each request + duration
 - Global error handler: logs error context and returns `500`
+- Rate limiting: `authLimiter` (10 req/15 min on auth routes), `aiLimiter` (20 req/hr on AI routes), `generalLimiter` (100 req/min global)
+- Input validation: Zod schemas on all mutation endpoints via `validate` middleware
+- Ownership enforcement: all resume + job + review endpoints verify `resource.userId === req.user.userId`
+- 2FA: TOTP via `otplib`; login issues a short-lived `purpose:'2fa'` JWT before issuing a full session token
+- Cryptographic share keys: `crypto.randomBytes(8).toString('base64url')` (11 chars)
+
+## 6. Browser Extension Security Notes
+- The extension stores the user's JWT in `chrome.storage.local` (sandboxed to the extension, not accessible to web pages).
+- All HTTP requests originate from the MV3 service worker — they never touch LinkedIn's API.
+- The extension only reads the visible DOM; no LinkedIn credentials or cookies are read.
+- The JWT expires at the same time as a normal web session; the extension prompts the user to refresh it from the Settings page.

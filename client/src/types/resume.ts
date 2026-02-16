@@ -111,6 +111,7 @@ export interface Resume {
     userId: string;
     isPublic: boolean;
     shareKey?: string;
+    viewCount?: number;
     createdAt: string;
     updatedAt: string;
 }

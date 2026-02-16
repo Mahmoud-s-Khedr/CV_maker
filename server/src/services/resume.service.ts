@@ -52,3 +52,26 @@ export const getResumeVersions = async (resumeId: string) => {
         orderBy: { createdAt: 'desc' },
     });
 };
+
+export const getTemplateById = async (id: string) => {
+    return await prisma.template.findUnique({
+        where: { id },
+        select: { id: true, isPremium: true },
+    });
+};
+
+export const pruneOldVersions = async (resumeId: string, maxVersions = 20) => {
+    const count = await prisma.resumeVersion.count({ where: { resumeId } });
+    if (count <= maxVersions) return;
+
+    const oldest = await prisma.resumeVersion.findMany({
+        where: { resumeId },
+        orderBy: { createdAt: 'asc' },
+        take: count - maxVersions,
+        select: { id: true },
+    });
+
+    await prisma.resumeVersion.deleteMany({
+        where: { id: { in: oldest.map(v => v.id) } },
+    });
+};

@@ -20,21 +20,25 @@ import {
 } from '@dnd-kit/sortable';
 import { usePDF } from '@react-pdf/renderer';
 
-import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock, Share2, Globe, Copy } from 'lucide-react';
+import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock, Share2, Globe, Copy, Check, Loader2, Palette, Download, FileJson, FileText, MessageSquare, Briefcase } from 'lucide-react';
 import { SortableSection } from './SortableSection';
 import { ResumeDocument } from '../pdf/ResumeDocument';
 import { useDebounce } from '../../hooks/useDebounce';
 import { AnalysisPanel } from './AnalysisPanel';
+import { CompletenessScore } from './CompletenessScore';
 import { HistoryPanel } from './HistoryPanel';
+import { ReviewPanel } from './ReviewPanel';
+import { TemplatePicker } from './TemplatePicker';
 import { PDFPreview } from './PDFPreview';
 import { makeResumePdfFilename } from '../../lib/filename';
+import { exportAsJSON, exportAsPlainText } from '../../lib/export';
 import { PersonalInfoForm } from './forms/PersonalInfoForm';
 import { SectionItemEditor } from './SectionItemEditor';
 import { AddSectionModal } from './AddSectionModal';
 import { Toast } from '../ui/Toast';
+import { ErrorBoundary } from '../ErrorBoundary';
+import { JobFormModal } from '../jobs/JobFormModal';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-
 import 'react-pdf/dist/Page/TextLayer.css';
 
 export const ResumeEditor: React.FC = () => {
@@ -54,6 +58,7 @@ export const ResumeEditor: React.FC = () => {
         dynamicTemplateConfig,
         isPublic,
         shareKey,
+        viewCount,
         togglePublic
     } = useResumeStore();
 
@@ -63,10 +68,26 @@ export const ResumeEditor: React.FC = () => {
 
     const [showAddModal, setShowAddModal] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [showExportMenu, setShowExportMenu] = useState(false);
     const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
-    const [availableTemplates, setAvailableTemplates] = useState<{ id: string, name: string }[]>([]);
+    const [availableTemplates, setAvailableTemplates] = useState<{ id: string, name: string, isPremium?: boolean }[]>([]);
     const [showShareMenu, setShowShareMenu] = useState(false);
+    const [showReviewPanel, setShowReviewPanel] = useState(false);
+    const [showJobForm, setShowJobForm] = useState(false);
     const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
+    const [justSaved, setJustSaved] = useState(false);
+    const prevIsSaving = React.useRef(false);
+
+    // Show "Saved" confirmation for 3s after isSaving transitions true → false
+    React.useEffect(() => {
+        if (prevIsSaving.current && !isSaving && backendId) {
+            setJustSaved(true);
+            const timer = setTimeout(() => setJustSaved(false), 3000);
+            return () => clearTimeout(timer);
+        }
+        prevIsSaving.current = isSaving;
+    }, [isSaving, backendId]);
 
     useEffect(() => {
         const fetchTemplates = async () => {
@@ -171,6 +192,33 @@ export const ResumeEditor: React.FC = () => {
             {/* History Panel */}
             <HistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} />
 
+            {/* Review Panel */}
+            <ReviewPanel isOpen={showReviewPanel} onClose={() => setShowReviewPanel(false)} />
+
+            {/* Job Application Form */}
+            <JobFormModal
+                isOpen={showJobForm}
+                onClose={() => setShowJobForm(false)}
+                onSubmit={async (data) => {
+                    const { createJobApplication } = await import('../../lib/api');
+                    await createJobApplication(data);
+                }}
+                prefilledResumeId={backendId || undefined}
+            />
+
+            {/* Template Picker Panel */}
+            <TemplatePicker
+                isOpen={showTemplatePicker}
+                onClose={() => setShowTemplatePicker(false)}
+                currentTemplateId={resume.meta?.templateId || 'standard'}
+                customTemplates={availableTemplates}
+                isPremiumUser={user?.isPremium === true}
+                onSelectTemplate={(id) => {
+                    updateTemplate(id);
+                    setShowTemplatePicker(false);
+                }}
+            />
+
             {/* Mobile view toggle */}
             <div className="lg:hidden px-4 pt-4">
                 <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
@@ -218,21 +266,14 @@ export const ResumeEditor: React.FC = () => {
 
                         <div className="h-6 w-px bg-gray-200"></div>
 
-                        <select
-                            className="bg-transparent text-sm font-medium text-gray-700 border-none outline-none cursor-pointer hover:text-gray-900 truncate max-w-[220px] sm:max-w-none"
-                            value={resume.meta?.templateId || 'standard'}
-                            onChange={(e) => updateTemplate(e.target.value)}
+                        <button
+                            onClick={() => setShowTemplatePicker(true)}
+                            className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition"
+                            title="Choose Template"
                         >
-                            <option value="standard">Standard Template</option>
-                            <option value="modern">Modern Template</option>
-                            <option value="minimalist">Minimalist Template</option>
-                            <option value="professional">Professional Template</option>
-                            <option value="executive">Executive Template</option>
-                            <option value="creative">Creative Template</option>
-                            {availableTemplates.map(t => (
-                                <option key={t.id} value={t.id}>{t.name} (Dynamic)</option>
-                            ))}
-                        </select>
+                            <Palette className="w-4 h-4" />
+                            <span className="truncate max-w-[160px] sm:max-w-none">Templates</span>
+                        </button>
                     </div>
 
 
@@ -290,6 +331,12 @@ export const ResumeEditor: React.FC = () => {
                                             >
                                                 Open Link
                                             </a>
+                                            {viewCount > 0 && (
+                                                <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
+                                                    <Eye className="w-3 h-3" />
+                                                    <span>{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -303,6 +350,24 @@ export const ResumeEditor: React.FC = () => {
                         >
                             <Clock className="w-5 h-5" />
                         </button>
+
+                        <button
+                            onClick={() => setShowReviewPanel(true)}
+                            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                            title="Get Feedback"
+                        >
+                            <MessageSquare className="w-5 h-5" />
+                        </button>
+
+                        {backendId && (
+                            <button
+                                onClick={() => setShowJobForm(true)}
+                                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                                title="Apply with this resume"
+                            >
+                                <Briefcase className="w-5 h-5" />
+                            </button>
+                        )}
 
                         <label className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition cursor-pointer" title="Import LinkedIn PDF">
                             <input
@@ -321,12 +386,23 @@ export const ResumeEditor: React.FC = () => {
                         <button
                             onClick={() => saveToBackend()}
                             disabled={isSaving}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2 ${backendId
-                                ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-                                : 'bg-blue-600 text-white hover:bg-blue-700'
-                                } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2 ${
+                                isSaving
+                                    ? 'bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed'
+                                    : justSaved
+                                        ? 'bg-green-50 text-green-700 border border-green-200'
+                                        : backendId
+                                            ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
                         >
-                            {isSaving ? 'Saving...' : 'Save'}
+                            {isSaving ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+                            ) : justSaved ? (
+                                <><Check className="w-4 h-4" /> Saved</>
+                            ) : (
+                                'Save'
+                            )}
                         </button>
                     </div>
                 </header>
@@ -334,6 +410,9 @@ export const ResumeEditor: React.FC = () => {
                 <div className="flex flex-1 min-h-0 overflow-hidden">
                     <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
                         <div className="max-w-3xl mx-auto space-y-6">
+                            {/* Profile Completeness Score */}
+                            <CompletenessScore />
+
                             {/* ANALYSIS PANEL (Top of editor) */}
                             <AnalysisPanel />
 
@@ -454,14 +533,60 @@ export const ResumeEditor: React.FC = () => {
             >
                 <div className="p-4 bg-gray-800 text-white flex justify-between items-center border-b border-gray-700">
                     <span className="font-medium text-gray-300">Live Preview</span>
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowExportMenu(!showExportMenu)}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition"
+                        >
+                            <Download className="w-4 h-4" />
+                            Export
+                        </button>
+                        {showExportMenu && (
+                            <div className="absolute top-full right-0 mt-1 w-44 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-50">
+                                {instance.url && (
+                                    <a
+                                        href={instance.url}
+                                        download={downloadFileName}
+                                        className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                        onClick={() => setShowExportMenu(false)}
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                        PDF
+                                    </a>
+                                )}
+                                <button
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                                    onClick={() => {
+                                        exportAsJSON(resume, downloadFileName.replace('.pdf', '.json'));
+                                        setShowExportMenu(false);
+                                    }}
+                                >
+                                    <FileJson className="w-3.5 h-3.5" />
+                                    JSON
+                                </button>
+                                <button
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                                    onClick={() => {
+                                        exportAsPlainText(resume, downloadFileName.replace('.pdf', '.txt'));
+                                        setShowExportMenu(false);
+                                    }}
+                                >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    Plain Text
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-hidden relative">
-                    <PDFPreview
-                        url={instance.url}
-                        loading={instance.loading}
-                        error={instance.error ? new Error(instance.error.toString()) : null}
-                        downloadFileName={downloadFileName}
-                    />
+                    <ErrorBoundary>
+                        <PDFPreview
+                            url={instance.url}
+                            loading={instance.loading}
+                            error={instance.error ? new Error(instance.error.toString()) : null}
+                            downloadFileName={downloadFileName}
+                        />
+                    </ErrorBoundary>
                 </div>
             </div>
         </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { MoreVertical, Edit, Trash2, Copy } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Copy, Eye } from 'lucide-react';
 import type { Resume, ResumeSchema } from '../types/resume';
 import { usePDF } from '@react-pdf/renderer';
 import { Document, Page } from 'react-pdf';
@@ -141,9 +141,15 @@ export const ResumeCard: React.FC<ResumeCardProps> = ({ resume, onDelete, onDupl
                     </div>
                 </div>
 
-                <p className="text-xs text-gray-500">
-                    Updated {formatDistanceToNow(new Date(resume.updatedAt), { addSuffix: true })}
-                </p>
+                <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span>Updated {formatDistanceToNow(new Date(resume.updatedAt), { addSuffix: true })}</span>
+                    {resume.isPublic && (resume.viewCount ?? 0) > 0 && (
+                        <span className="flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            {resume.viewCount}
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );
