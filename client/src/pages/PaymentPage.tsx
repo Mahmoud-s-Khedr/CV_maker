@@ -1,50 +1,22 @@
 import React, { useState } from 'react';
-import { useAuthStore } from '../store/auth';
-import * as api from '../lib/api';
+import { createCheckoutSession } from '../lib/api';
 
 export const PaymentPage: React.FC = () => {
-    const { user } = useAuthStore();
-    const [iframeUrl, setIframeUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleUpgrade = async () => {
-        if (!user) return;
         setLoading(true);
+        setError(null);
         try {
-            const response = await api.initiatePayment({
-                firstName: user.firstName || 'User',
-                lastName: 'Customer', // Should get from profile
-                email: user.email,
-                phone: '+201000000000'
-            });
-
-            const { paymentKey, frameId } = response;
-            const url = `https://accept.paymob.com/api/acceptance/iframes/${frameId}?payment_token=${paymentKey}`;
-            setIframeUrl(url);
-        } catch (error) {
-            console.error(error);
-            alert('Failed to initiate payment');
-        } finally {
+            const { url } = await createCheckoutSession();
+            window.location.href = url;
+        } catch (err) {
+            console.error(err);
+            setError('Failed to start checkout. Please try again.');
             setLoading(false);
         }
     };
-
-    if (iframeUrl) {
-        return (
-            <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-                <div className="max-w-5xl mx-auto">
-                    <h1 className="text-2xl font-bold mb-4">Complete Your Payment</h1>
-                    <div className="w-full bg-white shadow-lg rounded-lg overflow-hidden h-[calc(100vh-10rem)] min-h-[520px]">
-                    <iframe
-                        src={iframeUrl}
-                        className="w-full h-full border-none"
-                        title="Payment Frame"
-                    />
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="px-4 py-8 sm:px-6 sm:py-10 lg:px-8 flex justify-center">
@@ -54,15 +26,19 @@ export const PaymentPage: React.FC = () => {
                     Unlock unlimited AI usage, premium templates, and priority support.
                 </p>
                 <div className="text-5xl font-bold text-blue-600 my-8">
-                    100 <span className="text-xl text-gray-500">EGP</span>
+                    $9.99 <span className="text-xl text-gray-500">one-time</span>
                 </div>
+
+                {error && (
+                    <p className="text-red-500 text-sm">{error}</p>
+                )}
 
                 <button
                     onClick={handleUpgrade}
                     disabled={loading}
-                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition transform hover:-translate-y-1 block"
+                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-lg shadow transition transform hover:-translate-y-1 block"
                 >
-                    {loading ? 'Processing...' : 'Pay with Card / Wallet'}
+                    {loading ? 'Redirecting to checkout...' : 'Pay with Card'}
                 </button>
             </div>
         </div>
