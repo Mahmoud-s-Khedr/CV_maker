@@ -12,7 +12,7 @@ export const ResetPasswordPage: React.FC = () => {
     const [searchParams] = useSearchParams();
     const token = searchParams.get('token');
     const navigate = useNavigate();
-    const { register, handleSubmit, watch } = useForm<FormData>();
+    const { register, handleSubmit } = useForm<FormData>();
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
