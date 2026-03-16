@@ -4,6 +4,7 @@ import { useJobStore } from '../store/job';
 import { JobTableView } from '../components/jobs/JobTableView';
 import { JobKanbanView } from '../components/jobs/JobKanbanView';
 import { JobFormModal } from '../components/jobs/JobFormModal';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import type { JobApplication, ApplicationStatus, CreateJobInput } from '../types/job';
 
 const STATUS_TABS: { value: ApplicationStatus | 'ALL'; label: string }[] = [
@@ -20,6 +21,7 @@ export const JobTrackerPage: React.FC = () => {
         applications,
         stats,
         isLoading,
+        listError,
         filter,
         fetchApplications,
         fetchStats,
@@ -32,19 +34,31 @@ export const JobTrackerPage: React.FC = () => {
     const [view, setView] = useState<'table' | 'kanban'>('table');
     const [showForm, setShowForm] = useState(false);
     const [editingJob, setEditingJob] = useState<JobApplication | null>(null);
+    const [actionError, setActionError] = useState('');
 
     useEffect(() => {
-        fetchApplications();
         fetchStats();
-    }, [fetchApplications, fetchStats]);
+    }, [fetchStats]);
+
+    useEffect(() => {
+        fetchApplications(filter);
+    }, [fetchApplications, filter]);
 
     const handleSubmit = async (data: CreateJobInput) => {
-        if (editingJob) {
-            await updateApplication(editingJob.id, data);
-        } else {
-            await createApplication(data);
+        setActionError('');
+        try {
+            if (editingJob) {
+                await updateApplication(editingJob.id, data);
+            } else {
+                await createApplication(data);
+            }
+            await fetchStats();
+            setEditingJob(null);
+            setShowForm(false);
+        } catch (err) {
+            console.error('Failed to save job application', err);
+            setActionError('Failed to save application. Please try again.');
         }
-        fetchStats();
     };
 
     const handleEdit = (job: JobApplication) => {
@@ -53,13 +67,25 @@ export const JobTrackerPage: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        await deleteApplication(id);
-        fetchStats();
+        setActionError('');
+        try {
+            await deleteApplication(id);
+            await fetchStats();
+        } catch (err) {
+            console.error('Failed to delete application', err);
+            setActionError('Failed to delete application. Please try again.');
+        }
     };
 
     const handleStatusChange = async (id: string, status: ApplicationStatus) => {
-        await updateApplication(id, { status });
-        fetchStats();
+        setActionError('');
+        try {
+            await updateApplication(id, { status });
+            await fetchStats();
+        } catch (err) {
+            console.error('Failed to update application status', err);
+            setActionError('Failed to update status. Please try again.');
+        }
     };
 
     const handleCloseForm = () => {
@@ -68,7 +94,8 @@ export const JobTrackerPage: React.FC = () => {
     };
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <ErrorBoundary fallback={<div className="p-6 text-sm text-red-600">Failed to render job tracker.</div>}>
+            <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
@@ -113,6 +140,16 @@ export const JobTrackerPage: React.FC = () => {
             )}
 
             {/* Filter Tabs + View Toggle */}
+            {actionError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {actionError}
+                </div>
+            )}
+            {listError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {listError}
+                </div>
+            )}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div className="flex items-center gap-1 overflow-x-auto">
                     {STATUS_TABS.map((tab) => (
@@ -154,6 +191,11 @@ export const JobTrackerPage: React.FC = () => {
                     <div className="text-center py-16 text-gray-400">
                         <p>Loading applications...</p>
                     </div>
+                ) : listError ? (
+                    <div className="text-center py-16 px-4 text-red-600">
+                        <p className="text-lg font-medium">Unable to load applications</p>
+                        <p className="text-sm mt-1 text-red-500">Refresh the page or try again in a moment.</p>
+                    </div>
                 ) : view === 'table' ? (
                     <JobTableView
                         applications={applications}
@@ -178,6 +220,7 @@ export const JobTrackerPage: React.FC = () => {
                 onSubmit={handleSubmit}
                 initialData={editingJob}
             />
-        </div>
+            </div>
+        </ErrorBoundary>
     );
 };

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { ResumeSchema, Resume } from '../types/resume';
-import type { CreateJobInput } from '../types/job';
+import type { CreateJobInput, UpdateJobInput } from '../types/job';
 
 // Use environment variable for API URL, fallback to localhost for development.
 // We normalize it to ensure it includes the `/api` prefix.
@@ -59,7 +59,7 @@ export const deleteResume = async (id: string) => {
     await api.delete(`/resumes/${id}`);
 };
 
-export const saveVersion = async (resumeId: string, content: any) => {
+export const saveVersion = async (resumeId: string, content: unknown) => {
     return await api.post(`/resumes/${resumeId}/versions`, { content });
 };
 
@@ -211,13 +211,18 @@ export const getAuditLogs = async (page = 1, limit = 50) => {
     return response.data;
 };
 
-export const createTemplate = async (data: { name: string, config: any, isPremium: boolean, thumbnailUrl?: string }) => {
+export const createTemplate = async (data: { name: string, config: unknown, isPremium: boolean, thumbnailUrl?: string }) => {
     const response = await api.post('/admin/templates', data);
     return response.data;
 };
 
 export const deleteTemplate = async (id: string) => {
     const response = await api.delete(`/admin/templates/${id}`);
+    return response.data;
+};
+
+export const updateTemplate = async (id: string, data: { name: string, config: unknown, isPremium: boolean, thumbnailUrl?: string }) => {
+    const response = await api.put(`/admin/templates/${id}`, data);
     return response.data;
 };
 
@@ -246,6 +251,16 @@ export const getPublicResume = async (shareKey: string) => {
 // --- PAYMENT API ---
 export const createCheckoutSession = async (): Promise<{ url: string }> => {
     const response = await api.post('/payment/create-checkout-session');
+    return response.data;
+};
+
+export const verifyCheckoutSession = async (sessionId: string): Promise<{ verified: boolean; isPremium: boolean }> => {
+    const response = await api.post('/payment/verify-session', { sessionId });
+    return response.data;
+};
+
+export const getCurrentUser = async () => {
+    const response = await api.get('/auth/me');
     return response.data;
 };
 
@@ -310,8 +325,7 @@ export const createJobApplication = async (data: CreateJobInput) => {
     return response.data;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const updateJobApplication = async (id: string, data: any) => {
+export const updateJobApplication = async (id: string, data: UpdateJobInput) => {
     const response = await api.patch(`/jobs/${id}`, data);
     return response.data;
 };
@@ -324,4 +338,3 @@ export const getJobStats = async () => {
     const response = await api.get('/jobs/stats');
     return response.data;
 };
-

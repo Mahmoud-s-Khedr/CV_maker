@@ -10,7 +10,7 @@ interface NotificationPrefs {
 
 const LABELS: Record<keyof NotificationPrefs, { title: string; description: string }> = {
     resumeViewed: { title: 'Resume Viewed', description: 'Get notified when your resume reaches view milestones' },
-    weeklyDigest: { title: 'Weekly Digest', description: 'Receive a weekly summary of your resume views' },
+    weeklyDigest: { title: 'Weekly Digest', description: 'Receive a weekly summary of resume views from the last 7 days' },
     subscriptionReminder: { title: 'Subscription Reminder', description: 'Get reminded before your premium subscription expires' },
     accountActivity: { title: 'Account Activity', description: 'Receive alerts about logins and account changes' },
 };
@@ -19,11 +19,18 @@ export const NotificationSettings: React.FC = () => {
     const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
 
     useEffect(() => {
         api.getNotificationPreferences()
-            .then(setPrefs)
-            .catch(() => {})
+            .then((data) => {
+                setPrefs(data);
+                setError('');
+            })
+            .catch((err) => {
+                console.error('Failed to load notification preferences', err);
+                setError('Failed to load notification preferences. Please refresh and try again.');
+            })
             .finally(() => setLoading(false));
     }, []);
 
@@ -54,6 +61,15 @@ export const NotificationSettings: React.FC = () => {
         );
     }
 
+    if (error) {
+        return (
+            <div className="bg-white border border-red-200 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Email Notifications</h3>
+                <p className="text-sm text-red-700">{error}</p>
+            </div>
+        );
+    }
+
     if (!prefs) return null;
 
     return (
@@ -69,7 +85,11 @@ export const NotificationSettings: React.FC = () => {
                         <button
                             onClick={() => handleToggle(key)}
                             disabled={saving}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            role="switch"
+                            aria-checked={!!prefs[key]}
+                            aria-label={`${LABELS[key].title} notifications`}
+                            aria-disabled={saving}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
                                 prefs[key] ? 'bg-blue-500' : 'bg-gray-200'
                             }`}
                         >

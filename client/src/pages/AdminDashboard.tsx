@@ -5,10 +5,13 @@ import { usePDF } from '@react-pdf/renderer';
 import { ResumeDocument } from '../components/pdf/ResumeDocument';
 import { DUMMY_RESUME } from '../data/dummyResume';
 import { PDFPreview } from '../components/editor/PDFPreview';
+import { useDebounce } from '../hooks/useDebounce';
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-json';
 import 'prismjs/themes/prism.css';
+import { TemplateConfigForm } from '../components/admin/TemplateConfigForm';
+import type { TemplateConfig } from '../types/template';
 
 interface User {
     id: string;
@@ -43,19 +46,71 @@ export const AdminDashboard: React.FC = () => {
 
     // New Template Form State
     const [newTemplateName, setNewTemplateName] = useState('');
-    const initialConfigString = '{\n  "layout": "single-column",\n  "theme": {\n    "primaryColor": "#000000",\n    "secondaryColor": "#666666",\n    "backgroundColor": "#FFFFFF",\n    "textColor": "#333333",\n    "fontFamily": "Helvetica",\n    "fontSize": 10,\n    "lineHeight": 1.5,\n    "margins": { "top": 30, "right": 30, "bottom": 30, "left": 30 }\n  },\n  "header": {\n     "layout": "left",\n     "name": { "fontSize": 20, "fontWeight": "bold" },\n     "title": { "fontSize": 12, "color": "#666666" },\n     "showPhoto": false\n  },\n  "sections": {\n      "experience": {\n          "titleStyle": { "fontSize": 14, "fontWeight": "bold", "textTransform": "uppercase", "marginBottom": 10 },\n          "itemStyle": { \n              "title": { "fontSize": 12, "fontWeight": "bold" },\n              "subtitle": { "fontSize": 10, "fontStyle": "italic" },\n              "date": { "fontSize": 10 },\n              "description": { "fontSize": 10 },\n              "marginBottom": 10\n          },\n          "layout": "list"\n      }\n  }\n}';
+    const initialConfig: TemplateConfig = {
+        id: '',
+        layout: 'single-column',
+        theme: {
+            primaryColor: '#1d4ed8',
+            secondaryColor: '#666666',
+            backgroundColor: '#FFFFFF',
+            textColor: '#333333',
+            fontFamily: 'Helvetica',
+            fontSize: 10,
+            lineHeight: 1.5,
+            margins: { top: 36, right: 36, bottom: 36, left: 36 },
+        },
+        header: {
+            layout: 'left',
+            name: { fontSize: 22, fontWeight: 'bold' },
+            title: { fontSize: 12, fontWeight: 'normal', color: '#666666' },
+            showPhoto: false,
+        },
+        sections: {
+            experience: {
+                titleStyle: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8 },
+                itemStyle: {
+                    title: { fontSize: 11, fontWeight: 'bold' },
+                    subtitle: { fontSize: 10, fontWeight: 'normal', fontStyle: 'italic' },
+                    date: { fontSize: 9, fontWeight: 'normal' },
+                    description: { fontSize: 10, fontWeight: 'normal' },
+                    marginBottom: 10,
+                },
+                layout: 'list',
+            },
+            education: {
+                titleStyle: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8 },
+                itemStyle: {
+                    title: { fontSize: 11, fontWeight: 'bold' },
+                    subtitle: { fontSize: 10, fontWeight: 'normal', fontStyle: 'italic' },
+                    date: { fontSize: 9, fontWeight: 'normal' },
+                    description: { fontSize: 10, fontWeight: 'normal' },
+                    marginBottom: 10,
+                },
+                layout: 'list',
+            },
+            skills: {
+                titleStyle: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8 },
+                itemStyle: {
+                    title: { fontSize: 10, fontWeight: 'normal' },
+                    subtitle: { fontSize: 9, fontWeight: 'normal' },
+                    date: { fontSize: 9, fontWeight: 'normal' },
+                    description: { fontSize: 9, fontWeight: 'normal' },
+                    marginBottom: 4,
+                },
+                layout: 'chips',
+            },
+        },
+    };
+    const initialConfigString = JSON.stringify(initialConfig, null, 2);
     const [newTemplateConfig, setNewTemplateConfig] = useState(initialConfigString);
+    const [visualConfig, setVisualConfig] = useState<TemplateConfig>(initialConfig);
     const [newTemplatePremium, setNewTemplatePremium] = useState(false);
+    const [builderTab, setBuilderTab] = useState<'visual' | 'json'>('visual');
+    const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+    const debouncedTemplateConfig = useDebounce(newTemplateConfig, 300);
 
     // Preview State
-    // Initialize with parsed config to avoid initial null/flash
-    const [previewConfig, setPreviewConfig] = useState<any>(() => {
-        try {
-            return JSON.parse(initialConfigString);
-        } catch {
-            return null;
-        }
-    });
+    const [previewConfig, setPreviewConfig] = useState<any>(initialConfig);
     const [jsonError, setJsonError] = useState<string | null>(null);
 
     const [loading, setLoading] = useState(false);
@@ -69,17 +124,24 @@ export const AdminDashboard: React.FC = () => {
         else if (activeTab === 'templates') fetchTemplates();
     }, [activeTab]);
 
-    // Update preview when config changes
+    // Sync JSON editor → preview + visual config
     useEffect(() => {
         try {
-            const parsed = JSON.parse(newTemplateConfig);
+            const parsed = JSON.parse(debouncedTemplateConfig);
             setPreviewConfig(parsed);
+            setVisualConfig(parsed as TemplateConfig);
             setJsonError(null);
-        } catch (e) {
-            // Don't update previewConfig if JSON is invalid, just set error
+        } catch {
             setJsonError('Invalid JSON');
         }
-    }, [newTemplateConfig]);
+    }, [debouncedTemplateConfig]);
+
+    // Sync visual config → JSON editor + preview
+    const handleVisualChange = (cfg: TemplateConfig) => {
+        setVisualConfig(cfg);
+        setPreviewConfig(cfg);
+        setNewTemplateConfig(JSON.stringify(cfg, null, 2));
+    };
 
     // PDF Generation Logic
     const pdfDocument = useMemo(() => (
@@ -128,27 +190,52 @@ export const AdminDashboard: React.FC = () => {
         }
     };
 
+    const resetForm = () => {
+        setNewTemplateName('');
+        setNewTemplatePremium(false);
+        setEditingTemplateId(null);
+        setVisualConfig(initialConfig);
+        setNewTemplateConfig(initialConfigString);
+        setPreviewConfig(initialConfig);
+    };
+
     const handleCreateTemplate = async () => {
+        let config;
+        try { config = JSON.parse(newTemplateConfig); } catch { alert('Invalid JSON config'); return; }
         try {
-            let config;
-            try {
-                config = JSON.parse(newTemplateConfig);
-            } catch (e) {
-                alert('Invalid JSON Config');
-                return;
-            }
-
-            await api.createTemplate({
-                name: newTemplateName,
-                config,
-                isPremium: newTemplatePremium
-            });
-
-            setNewTemplateName('');
-            alert('Template created successfully');
+            await api.createTemplate({ name: newTemplateName, config, isPremium: newTemplatePremium });
+            resetForm();
             fetchTemplates();
         } catch (err: any) {
             alert(err.response?.data?.error || 'Failed to create template');
+        }
+    };
+
+    const handleUpdateTemplate = async () => {
+        if (!editingTemplateId) return;
+        let config;
+        try { config = JSON.parse(newTemplateConfig); } catch { alert('Invalid JSON config'); return; }
+        try {
+            await api.updateTemplate(editingTemplateId, { name: newTemplateName, config, isPremium: newTemplatePremium });
+            resetForm();
+            fetchTemplates();
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Failed to update template');
+        }
+    };
+
+    const handleEditTemplate = async (t: Template) => {
+        try {
+            const full = await api.getTemplate(t.id);
+            const cfg = full.config as TemplateConfig;
+            setEditingTemplateId(t.id);
+            setNewTemplateName(t.name);
+            setNewTemplatePremium(t.isPremium);
+            setVisualConfig(cfg);
+            setPreviewConfig(cfg);
+            setNewTemplateConfig(JSON.stringify(cfg, null, 2));
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Failed to load template');
         }
     };
 
@@ -291,57 +378,89 @@ export const AdminDashboard: React.FC = () => {
                 {activeTab === 'templates' && (
                     <div className="space-y-6">
                         <div className="bg-white shadow rounded-lg p-6">
-                            <h2 className="text-xl font-semibold mb-4">Create New Template</h2>
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-semibold">
+                                    {editingTemplateId ? 'Edit Template' : 'Create New Template'}
+                                </h2>
+                                {editingTemplateId && (
+                                    <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700 underline">
+                                        Cancel Edit
+                                    </button>
+                                )}
+                            </div>
 
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-200px)]">
-                                <div className="space-y-4 flex flex-col h-full">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Template Name</label>
-                                        <input
-                                            type="text"
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                                            value={newTemplateName}
-                                            onChange={e => setNewTemplateName(e.target.value)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Is Premium</label>
-                                        <input
-                                            type="checkbox"
-                                            className="mt-1"
-                                            checked={newTemplatePremium}
-                                            onChange={e => setNewTemplatePremium(e.target.checked)}
-                                        />
-                                    </div>
-                                    <div className="flex-1 flex flex-col min-h-0">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            JSON Config
-                                            {jsonError && <span className="text-red-500 ml-2 text-xs">({jsonError})</span>}
-                                        </label>
-                                        <div className={`mt-1 flex-1 w-full rounded-md shadow-sm border ${jsonError ? 'border-red-500' : 'border-gray-300'} overflow-y-auto`}>
-                                            <Editor
-                                                value={newTemplateConfig}
-                                                onValueChange={code => setNewTemplateConfig(code)}
-                                                highlight={code => highlight(code, languages.json, 'json')}
-                                                padding={10}
-                                                style={{
-                                                    fontFamily: '"Fira code", "Fira Mono", monospace',
-                                                    fontSize: 12,
-                                                    backgroundColor: '#f8f9fa',
-                                                    minHeight: '100%'
-                                                }}
-                                                className="min-h-full"
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-240px)]">
+                                {/* Left: form */}
+                                <div className="flex flex-col h-full min-h-0 space-y-3">
+                                    <div className="flex gap-4">
+                                        <div className="flex-1">
+                                            <label className="block text-sm font-medium text-gray-700">Template Name</label>
+                                            <input
+                                                type="text"
+                                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                                                value={newTemplateName}
+                                                onChange={e => setNewTemplateName(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="flex items-end gap-2 pb-1">
+                                            <label className="text-sm font-medium text-gray-700">Premium</label>
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4"
+                                                checked={newTemplatePremium}
+                                                onChange={e => setNewTemplatePremium(e.target.checked)}
                                             />
                                         </div>
                                     </div>
+
+                                    {/* Builder tabs */}
+                                    <div className="flex border-b border-gray-200">
+                                        <button
+                                            onClick={() => setBuilderTab('visual')}
+                                            className={`px-4 py-2 text-sm font-medium border-b-2 transition ${builderTab === 'visual' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            Visual
+                                        </button>
+                                        <button
+                                            onClick={() => setBuilderTab('json')}
+                                            className={`px-4 py-2 text-sm font-medium border-b-2 transition ${builderTab === 'json' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            JSON
+                                            {jsonError && <span className="text-red-500 ml-1 text-xs">(!)</span>}
+                                        </button>
+                                    </div>
+
+                                    <div className="flex-1 overflow-y-auto min-h-0">
+                                        {builderTab === 'visual' ? (
+                                            <TemplateConfigForm config={visualConfig} onChange={handleVisualChange} />
+                                        ) : (
+                                            <div className={`h-full rounded-md border ${jsonError ? 'border-red-500' : 'border-gray-300'} overflow-y-auto`}>
+                                                <Editor
+                                                    value={newTemplateConfig}
+                                                    onValueChange={code => setNewTemplateConfig(code)}
+                                                    highlight={code => highlight(code, languages.json, 'json')}
+                                                    padding={10}
+                                                    style={{
+                                                        fontFamily: '"Fira code", "Fira Mono", monospace',
+                                                        fontSize: 12,
+                                                        backgroundColor: '#f8f9fa',
+                                                        minHeight: '100%'
+                                                    }}
+                                                    className="min-h-full"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
                                     <button
-                                        onClick={handleCreateTemplate}
-                                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 w-full"
+                                        onClick={editingTemplateId ? handleUpdateTemplate : handleCreateTemplate}
+                                        className={`px-4 py-2 text-white rounded-md w-full ${editingTemplateId ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}
                                     >
-                                        Create Template
+                                        {editingTemplateId ? 'Save Changes' : 'Create Template'}
                                     </button>
                                 </div>
 
+                                {/* Right: live preview */}
                                 <div className="border rounded-md bg-gray-50 flex flex-col h-full overflow-hidden">
                                     <div className="p-2 border-b bg-gray-100 font-medium text-gray-700 text-sm">
                                         Live Preview
@@ -377,11 +496,17 @@ export const AdminDashboard: React.FC = () => {
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {templates.map(t => (
-                                        <tr key={t.id}>
+                                        <tr key={t.id} className={editingTemplateId === t.id ? 'bg-blue-50' : ''}>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{t.name}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{t.isPremium ? '✅' : '❌'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{t.id}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
+                                                <button
+                                                    onClick={() => handleEditTemplate(t)}
+                                                    className="text-blue-600 hover:text-blue-900"
+                                                >
+                                                    Edit
+                                                </button>
                                                 <button
                                                     onClick={() => handleDeleteTemplate(t.id)}
                                                     className="text-red-600 hover:text-red-900"

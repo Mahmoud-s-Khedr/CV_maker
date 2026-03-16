@@ -2,12 +2,28 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
+import axios from 'axios';
 import { useAuthStore } from '../store/auth';
 import * as api from '../lib/api';
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '';
+const GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE = `Google Sign-In is not available for ${window.location.origin}. Add this origin to the Google OAuth client's Authorized JavaScript origins and make sure VITE_GOOGLE_CLIENT_ID matches GOOGLE_CLIENT_ID.`;
+
+interface AuthFormData {
+    email: string;
+    password: string;
+    isRecruiter?: boolean;
+}
+
+interface AuthLocationState {
+    from?: {
+        pathname?: string;
+    };
+}
+
 export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     const isLogin = type === 'login';
-    const { register, handleSubmit, getValues } = useForm();
+    const { register, handleSubmit, getValues } = useForm<AuthFormData>();
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [requiresVerification, setRequiresVerification] = useState(false);
@@ -15,7 +31,21 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
     const navigate = useNavigate();
     const location = useLocation();
     const { login, isAuthenticated } = useAuthStore();
-    const from = (location.state as any)?.from?.pathname || '/dashboard';
+    const from = (location.state as AuthLocationState | null)?.from?.pathname || '/dashboard';
+    const googleSignInEnabled = GOOGLE_CLIENT_ID.length > 0;
+
+    const getRequiresVerification = (errorData: unknown) => {
+        if (!errorData || typeof errorData !== 'object') {
+            return false;
+        }
+
+        const record = errorData as {
+            requiresVerification?: unknown;
+            details?: { requiresVerification?: unknown };
+        };
+
+        return Boolean(record.requiresVerification || record.details?.requiresVerification);
+    };
 
     // Redirect if already authenticated
     React.useEffect(() => {
@@ -24,7 +54,7 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
         }
     }, [isAuthenticated, navigate, from]);
 
-    const onSubmit = async (data: any) => {
+    const onSubmit = async (data: AuthFormData) => {
         try {
             setError('');
             setSuccess('');
@@ -46,11 +76,15 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
                 setSuccess('Registration successful! Please check your email to verify your account.');
                 setRequiresVerification(true);
             }
-        } catch (err: any) {
-            const errorData = err.response?.data;
-            setError(errorData?.error || 'Authentication failed');
+        } catch (err: unknown) {
+            const errorData = axios.isAxiosError(err) ? err.response?.data : undefined;
+            const message = axios.isAxiosError(err) && !err.response
+                ? 'Unable to reach the authentication server. Check that the backend is running and that this frontend origin is allowed by CORS.'
+                : (errorData as { error?: string } | undefined)?.error || 'Authentication failed';
 
-            if (errorData?.requiresVerification) {
+            setError(message);
+
+            if (getRequiresVerification(errorData)) {
                 setRequiresVerification(true);
             }
         }
@@ -68,15 +102,20 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
             await api.resendVerification(email);
             setSuccess('Verification email sent! Please check your inbox.');
             setError('');
-        } catch (err) {
+        } catch {
             setError('Failed to resend verification email');
         } finally {
             setResending(false);
         }
     };
 
-    const handleGoogleSuccess = async (credentialResponse: any) => {
+    const handleGoogleSuccess = async (credentialResponse: { credential?: string }) => {
         try {
+            if (!credentialResponse?.credential) {
+                setError(GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE);
+                return;
+            }
+
             const result = await api.googleLogin(credentialResponse.credential);
             if (result.requiresTwoFactor) {
                 navigate('/2fa-verify', { state: { tempToken: result.tempToken }, replace: true });
@@ -85,6 +124,14 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
             login(result.token, result.user);
             navigate(from, { replace: true });
         } catch (err) {
+            if (axios.isAxiosError(err)) {
+                const errorData = err.response?.data;
+                const message = errorData?.error || 'Google Sign-In failed';
+                setRequiresVerification(getRequiresVerification(errorData));
+                setError(message);
+                return;
+            }
+
             setError('Google Sign-In failed');
         }
     };
@@ -190,14 +237,20 @@ export const AuthPage: React.FC<{ type: 'login' | 'register' }> = ({ type }) => 
                         <div className="space-y-6">
                             <div className="flex justify-center w-full">
                                 <div className="w-full transform transition hover:scale-[1.01]">
-                                    <GoogleLogin
-                                        onSuccess={handleGoogleSuccess}
-                                        onError={() => setError('Google Sign-In failed')}
-                                        theme="outline"
-                                        size="large"
-                                        width="100%"
-                                        shape="pill"
-                                    />
+                                    {googleSignInEnabled ? (
+                                        <GoogleLogin
+                                            onSuccess={handleGoogleSuccess}
+                                            onError={() => setError(GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE)}
+                                            theme="outline"
+                                            size="large"
+                                            width="100%"
+                                            shape="pill"
+                                        />
+                                    ) : (
+                                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                            Google Sign-In is disabled locally because `VITE_GOOGLE_CLIENT_ID` is not set.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

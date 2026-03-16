@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import axios from 'axios';
 import { api } from '../lib/api';
 
 interface FormData {
@@ -8,11 +9,13 @@ interface FormData {
     confirmPassword: string;
 }
 
+const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
 export const ResetPasswordPage: React.FC = () => {
     const [searchParams] = useSearchParams();
     const token = searchParams.get('token');
     const navigate = useNavigate();
-    const { register, handleSubmit } = useForm<FormData>();
+    const { register, handleSubmit, formState: { errors } } = useForm<FormData>();
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -29,8 +32,12 @@ export const ResetPasswordPage: React.FC = () => {
             navigate('/login', {
                 state: { message: 'Password reset successfully. Please sign in.' }
             });
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to reset password. The link may have expired.');
+        } catch (err: unknown) {
+            setError(
+                axios.isAxiosError(err)
+                    ? err.response?.data?.error || 'Failed to reset password. The link may have expired.'
+                    : 'Failed to reset password. The link may have expired.'
+            );
         } finally {
             setIsSubmitting(false);
         }
@@ -72,10 +79,23 @@ export const ResetPasswordPage: React.FC = () => {
                             </label>
                             <input
                                 type="password"
-                                {...register('newPassword', { required: true, minLength: 6 })}
+                                {...register('newPassword', {
+                                    required: true,
+                                    minLength: 8,
+                                    pattern: PASSWORD_PATTERN,
+                                })}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                placeholder="At least 6 characters"
+                                placeholder="8+ chars, upper/lowercase, number"
                             />
+                            {errors.newPassword?.type === 'required' && (
+                                <p className="mt-1 text-xs text-red-600">Password is required</p>
+                            )}
+                            {errors.newPassword?.type === 'minLength' && (
+                                <p className="mt-1 text-xs text-red-600">Password must be at least 8 characters</p>
+                            )}
+                            {errors.newPassword?.type === 'pattern' && (
+                                <p className="mt-1 text-xs text-red-600">Use uppercase, lowercase, and a number</p>
+                            )}
                         </div>
 
                         <div>
@@ -88,6 +108,9 @@ export const ResetPasswordPage: React.FC = () => {
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 placeholder="Repeat your password"
                             />
+                            {errors.confirmPassword?.type === 'required' && (
+                                <p className="mt-1 text-xs text-red-600">Please confirm your password</p>
+                            )}
                         </div>
 
                         <button

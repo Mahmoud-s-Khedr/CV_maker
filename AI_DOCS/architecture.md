@@ -74,7 +74,7 @@ Mounted in `server/src/app.ts`.
 
 ### Two-Factor Authentication (`/api/auth/2fa`) (protected)
 - `POST /setup` — generate TOTP secret + QR code URI
-- `POST /verify` — confirm setup with first code → enables 2FA
+- `POST /verify-setup` — confirm setup with first code → enables 2FA
 - `POST /disable` — disable with current code
 - `POST /validate` — exchange temp JWT + OTP for a full session JWT (called from `/2fa-verify` page)
 

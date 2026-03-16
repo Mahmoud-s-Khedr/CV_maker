@@ -13,6 +13,7 @@ export const TwoFactorPage: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const isSubmittingRef = useRef(false);
 
     // Redirect if no temp token
     React.useEffect(() => {
@@ -34,7 +35,7 @@ export const TwoFactorPage: React.FC = () => {
         }
 
         // Auto-submit when all 6 digits entered
-        if (newCode.every((d) => d !== '') && value) {
+        if (!loading && !isSubmittingRef.current && newCode.every((d) => d !== '') && value) {
             handleSubmit(newCode.join(''));
         }
     };
@@ -52,7 +53,9 @@ export const TwoFactorPage: React.FC = () => {
             const newCode = pasted.split('');
             setCode(newCode);
             inputRefs.current[5]?.focus();
-            handleSubmit(pasted);
+            if (!loading && !isSubmittingRef.current) {
+                handleSubmit(pasted);
+            }
         }
     };
 
@@ -63,6 +66,11 @@ export const TwoFactorPage: React.FC = () => {
             return;
         }
 
+        if (isSubmittingRef.current) {
+            return;
+        }
+
+        isSubmittingRef.current = true;
         setLoading(true);
         setError('');
         try {
@@ -74,6 +82,7 @@ export const TwoFactorPage: React.FC = () => {
             setCode(['', '', '', '', '', '']);
             inputRefs.current[0]?.focus();
         } finally {
+            isSubmittingRef.current = false;
             setLoading(false);
         }
     };

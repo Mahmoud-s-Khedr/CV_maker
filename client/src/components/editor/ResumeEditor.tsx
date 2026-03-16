@@ -20,7 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { usePDF } from '@react-pdf/renderer';
 
-import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock, Share2, Globe, Copy, Check, Loader2, Palette, Download, FileJson, FileText, MessageSquare, Briefcase } from 'lucide-react';
+import { Plus, Eye, EyeOff, Trash2, ChevronDown, ChevronUp, Clock, Share2, Globe, Copy, Check, Loader2, Palette, Download, FileJson, FileText, FileCode, MessageSquare, Briefcase } from 'lucide-react';
 import { SortableSection } from './SortableSection';
 import { ResumeDocument } from '../pdf/ResumeDocument';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -31,7 +31,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { TemplatePicker } from './TemplatePicker';
 import { PDFPreview } from './PDFPreview';
 import { makeResumePdfFilename } from '../../lib/filename';
-import { exportAsJSON, exportAsPlainText } from '../../lib/export';
+import { exportAsJSON, exportAsPlainText, exportAsDocx } from '../../lib/export';
 import { PersonalInfoForm } from './forms/PersonalInfoForm';
 import { SectionItemEditor } from './SectionItemEditor';
 import { AddSectionModal } from './AddSectionModal';
@@ -59,7 +59,10 @@ export const ResumeEditor: React.FC = () => {
         isPublic,
         shareKey,
         viewCount,
-        togglePublic
+        togglePublic,
+        atsMode,
+        toggleAtsMode,
+        updateFontSize,
     } = useResumeStore();
 
     const { id } = useParams<{ id: string }>();
@@ -90,25 +93,33 @@ export const ResumeEditor: React.FC = () => {
     }, [isSaving, backendId]);
 
     useEffect(() => {
+        let isMounted = true;
+
         const fetchTemplates = async () => {
             try {
                 const { getTemplates } = await import('../../lib/api');
                 const templates = await getTemplates();
-                setAvailableTemplates(templates);
+                if (isMounted) {
+                    setAvailableTemplates(templates);
+                }
             } catch (err) {
                 console.error("Failed to fetch templates", err);
             }
         };
         fetchTemplates();
+
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     // Performance: Debounce the resume data passed to the heavy PDF renderer
     const debouncedResume = useDebounce(resume, 500);
 
-    const downloadFileName = useMemo(
-        () => makeResumePdfFilename(resume.profile?.fullName, resume.profile?.jobTitle),
-        [resume.profile?.fullName, resume.profile?.jobTitle]
-    );
+    const downloadFileName = useMemo(() => {
+        const base = makeResumePdfFilename(resume.profile?.fullName, resume.profile?.jobTitle);
+        return atsMode ? base.replace(/\.pdf$/, '-ATS.pdf') : base;
+    }, [resume.profile?.fullName, resume.profile?.jobTitle, atsMode]);
 
     // Stable reference for the PDF document
     // Stable reference for the PDF document
@@ -116,8 +127,9 @@ export const ResumeEditor: React.FC = () => {
         <ResumeDocument
             data={debouncedResume}
             dynamicConfig={dynamicTemplateConfig}
+            atsMode={atsMode}
         />
-    ), [debouncedResume, dynamicTemplateConfig]);
+    ), [debouncedResume, dynamicTemplateConfig, atsMode]);
 
     // Generate PDF Blob URL
     // Fix: Explicitly type or inspect usePDF return if needed, but usually it returns [instance, updateInstance]
@@ -126,7 +138,7 @@ export const ResumeEditor: React.FC = () => {
     // Explicitly trigger update when debounced data changes
     useEffect(() => {
         updateInstance(pdfDocument);
-    }, [debouncedResume, pdfDocument, updateInstance]);
+    }, [pdfDocument, updateInstance]);
 
     // Load Resume on Mount
     useEffect(() => {
@@ -200,8 +212,15 @@ export const ResumeEditor: React.FC = () => {
                 isOpen={showJobForm}
                 onClose={() => setShowJobForm(false)}
                 onSubmit={async (data) => {
-                    const { createJobApplication } = await import('../../lib/api');
-                    await createJobApplication(data);
+                    try {
+                        const { createJobApplication } = await import('../../lib/api');
+                        await createJobApplication(data);
+                        showNotification('success', 'Job application saved.');
+                    } catch (err) {
+                        console.error('Failed to create job application', err);
+                        showNotification('error', 'Failed to save job application.');
+                        throw err;
+                    }
                 }}
                 prefilledResumeId={backendId || undefined}
             />
@@ -357,6 +376,36 @@ export const ResumeEditor: React.FC = () => {
                             title="Get Feedback"
                         >
                             <MessageSquare className="w-5 h-5" />
+                        </button>
+
+                        {/* Font size presets */}
+                        <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden text-xs font-medium" title="PDF font size">
+                            {(['S', 'M', 'L', 'XL'] as const).map((label, i) => {
+                                const val = (['small', 'medium', 'large', 'xlarge'] as const)[i];
+                                const active = (resume.meta?.themeConfig?.fontSize ?? 'medium') === val;
+                                return (
+                                    <button
+                                        key={val}
+                                        onClick={() => updateFontSize(val)}
+                                        className={`px-2 py-1.5 transition ${active ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'} ${i > 0 ? 'border-l border-gray-300' : ''}`}
+                                        title={`Font size: ${label}`}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <button
+                            onClick={toggleAtsMode}
+                            title={atsMode ? 'Switch to visual mode' : 'Switch to ATS-safe mode'}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                atsMode
+                                    ? 'bg-green-50 border-green-400 text-green-700'
+                                    : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                            }`}
+                        >
+                            {atsMode ? '✓ ATS' : 'ATS'}
                         </button>
 
                         {backendId && (
@@ -532,7 +581,14 @@ export const ResumeEditor: React.FC = () => {
                 ].join(' ')}
             >
                 <div className="p-4 bg-gray-800 text-white flex justify-between items-center border-b border-gray-700">
-                    <span className="font-medium text-gray-300">Live Preview</span>
+                    <div className="flex items-center gap-3">
+                        <span className="font-medium text-gray-300">Live Preview</span>
+                        {atsMode && (
+                            <span className="text-xs bg-green-700 text-green-100 px-2 py-0.5 rounded-full">
+                                ATS Mode — plain layout
+                            </span>
+                        )}
+                    </div>
                     <div className="relative">
                         <button
                             onClick={() => setShowExportMenu(!showExportMenu)}
@@ -573,6 +629,16 @@ export const ResumeEditor: React.FC = () => {
                                 >
                                     <FileText className="w-3.5 h-3.5" />
                                     Plain Text
+                                </button>
+                                <button
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                                    onClick={() => {
+                                        exportAsDocx(resume, downloadFileName.replace('.pdf', '.docx'));
+                                        setShowExportMenu(false);
+                                    }}
+                                >
+                                    <FileCode className="w-3.5 h-3.5" />
+                                    Word (.docx)
                                 </button>
                             </div>
                         )}

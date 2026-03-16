@@ -80,6 +80,14 @@ export interface ThemeConfig {
     primaryColor: string;
     fontFamily: string;
     spacing: 'compact' | 'standard' | 'relaxed';
+    fontSize?: 'small' | 'medium' | 'large' | 'xlarge';
+}
+
+// --- Social Link ---
+export interface SocialLink {
+    id: string;
+    label: string;  // e.g. "LinkedIn", "GitHub", "Portfolio", "Blog"
+    url: string;
 }
 
 // --- Profile ---
@@ -91,6 +99,7 @@ export interface ResumeProfile {
     location: string;
     url: string;
     summary: string;
+    links?: SocialLink[];
 }
 
 // --- Main Schema (Content) ---

@@ -15,6 +15,10 @@ const BUILT_IN_TEMPLATES: Template[] = [
     { id: 'professional', name: 'Professional' },
     { id: 'executive', name: 'Executive' },
     { id: 'creative', name: 'Creative' },
+    { id: 'compact', name: 'Compact' },
+    { id: 'atscompact', name: 'ATS Compact' },
+    { id: 'elegant', name: 'Elegant' },
+    { id: 'twocolpro', name: 'Two-Column Pro' },
 ];
 
 const ACCENT_COLORS: Record<string, string> = {
@@ -24,6 +28,10 @@ const ACCENT_COLORS: Record<string, string> = {
     professional: '#1E40AF',
     executive: '#92400E',
     creative: '#7C3AED',
+    compact: '#0f766e',
+    atscompact: '#1f2937',
+    elegant: '#b8860b',
+    twocolpro: '#1d4ed8',
 };
 
 interface TemplatePickerProps {

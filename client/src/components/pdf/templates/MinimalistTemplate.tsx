@@ -1,14 +1,29 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { Page, Text, View, StyleSheet, Link } from '@react-pdf/renderer';
-import type { ResumeSchema, SectionItem } from '../../../types/resume';
+import type { ProjectItem, ResumeSchema, SectionItem, SkillItem } from '../../../types/resume';
+import {
+    asEducationItem,
+    asExperienceItem,
+    asLanguageItem,
+    asProjectItem,
+    asSkillItem,
+    formatDateRange,
+    formatExternalUrl,
+    groupSkillItemsByCategory,
+    normalizeExternalUrl,
+    sectionHasSkillCategories,
+} from '../templateUtils';
+import { getAtsSectionTitle } from '../atsConstants';
+import { PDF_COLUMN_WIDTHS } from '../layoutTokens';
 
-const styles = StyleSheet.create({
+const FONT_SCALE_MAP = { small: 0.85, medium: 1.0, large: 1.1, xlarge: 1.2 } as const;
+
+const makeStyles = (sc: number) => StyleSheet.create({
     page: {
         flexDirection: 'column',
         backgroundColor: '#FFFFFF',
         padding: 50,
-        fontSize: 10,
+        fontSize: 10 * sc,
         fontFamily: 'Times-Roman',
     },
     header: {
@@ -16,38 +31,40 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     name: {
-        fontSize: 18,
+        fontSize: 18 * sc,
         fontWeight: 'bold',
         textTransform: 'uppercase',
         marginBottom: 8,
         letterSpacing: 2,
     },
     jobTitle: {
-        fontSize: 11,
+        fontSize: 11 * sc,
         textTransform: 'uppercase',
         marginBottom: 8,
         letterSpacing: 1,
         color: '#444',
     },
     contact: {
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#444',
         flexDirection: 'row',
         justifyContent: 'center',
         flexWrap: 'wrap',
-        gap: 12,
     },
     section: {
         marginBottom: 16,
     },
-    sectionTitle: {
-        fontSize: 11,
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
+    // Border lives on the View wrapper — Text cannot have borderBottomWidth in react-pdf
+    sectionTitleWrapper: {
+        marginBottom: 10,
+        paddingBottom: 4,
         borderBottomWidth: 0.5,
         borderBottomColor: '#000',
-        paddingBottom: 4,
-        marginBottom: 10,
+    },
+    sectionTitleText: {
+        fontSize: 11 * sc,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
         letterSpacing: 1,
     },
     itemWrapper: {
@@ -61,40 +78,65 @@ const styles = StyleSheet.create({
     },
     bold: {
         fontWeight: 'bold',
-        fontSize: 10,
+        fontSize: 10 * sc,
     },
     subtitle: {
-        fontSize: 10,
+        fontSize: 10 * sc,
         fontStyle: 'italic',
     },
     date: {
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#444',
     },
     description: {
         marginTop: 2,
-        fontSize: 10,
+        fontSize: 10 * sc,
         lineHeight: 1.5,
         textAlign: 'justify',
     },
     link: {
         color: '#000',
         textDecoration: 'none',
-    }
+    },
 });
 
 interface TemplateProps {
     data: ResumeSchema;
+    atsMode?: boolean;
 }
 
-export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
-    const renderExperience = (item: any) => (
+export const MinimalistTemplate: React.FC<TemplateProps> = ({ data, atsMode = false }) => {
+    const sc = FONT_SCALE_MAP[data.meta?.themeConfig?.fontSize ?? 'medium'];
+    const styles = makeStyles(sc);
+
+    const contactItems: React.ReactNode[] = [];
+    if (data.profile.email) contactItems.push(<Text key="email">{data.profile.email}</Text>);
+    if (data.profile.phone) contactItems.push(<Text key="phone">{data.profile.phone}</Text>);
+    if (data.profile.location) contactItems.push(<Text key="location">{data.profile.location}</Text>);
+    if (data.profile.url) {
+        contactItems.push(
+            <Link
+                key="url"
+                src={normalizeExternalUrl(data.profile.url)}
+                style={styles.link}
+            >
+                {formatExternalUrl(data.profile.url)}
+            </Link>
+        );
+    }
+    (data.profile.links ?? []).forEach(l => {
+        contactItems.push(
+            <Link key={l.id} src={normalizeExternalUrl(l.url)} style={styles.link}>
+                {`${l.label}: ${formatExternalUrl(l.url)}`}
+            </Link>
+        );
+    });
+
+    const renderExperience = (item: ReturnType<typeof asExperienceItem>) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.position}</Text>
-                <Text style={styles.date}>
-                    {item.startDate} {item.endDate ? `- ${item.endDate}` : '- Present'}
-                </Text>
+                <Text style={styles.date}>{formatDateRange(item.startDate, item.endDate, { fallbackToPresent: true })}</Text>
             </View>
             <View style={styles.row}>
                 <Text style={styles.subtitle}>{item.company} {item.location ? `, ${item.location}` : ''}</Text>
@@ -103,13 +145,11 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
         </View>
     );
 
-    const renderEducation = (item: any) => (
+    const renderEducation = (item: ReturnType<typeof asEducationItem>) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.institution}</Text>
-                <Text style={styles.date}>
-                    {item.startDate} {item.endDate ? `- ${item.endDate}` : ''}
-                </Text>
+                <Text style={styles.date}>{formatDateRange(item.startDate, item.endDate)}</Text>
             </View>
             <View style={styles.row}>
                 <Text style={styles.subtitle}>{item.degree} {item.field ? `in ${item.field}` : ''}</Text>
@@ -119,16 +159,16 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
         </View>
     );
 
-    const renderSkill = (item: any) => (
-        <View key={item.id} style={{ width: '33%', marginBottom: 4 }}>
-            <Text style={{ fontSize: 10 }}>
+    const renderSkill = (item: SkillItem) => (
+        <View key={item.id} style={{ width: PDF_COLUMN_WIDTHS.oneThird, marginBottom: 4 }}>
+            <Text style={{ fontSize: 10 * sc }}>
                 {item.name}
-                {item.level && <Text style={{ color: '#666', fontSize: 9 }}> ({item.level})</Text>}
+                {item.level && <Text style={{ color: '#666', fontSize: 9 * sc }}> ({item.level})</Text>}
             </Text>
         </View>
     );
 
-    const renderProject = (item: any) => (
+    const renderProject = (item: ProjectItem) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.name}</Text>
@@ -144,64 +184,69 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
 
     const renderItem = (type: string, item: SectionItem) => {
         switch (type) {
-            case 'experience': return renderExperience(item);
-            case 'education': return renderEducation(item);
-            case 'projects': return renderProject(item);
-            case 'skills': return renderSkill(item);
+            case 'experience': return renderExperience(asExperienceItem(item));
+            case 'education': return renderEducation(asEducationItem(item));
+            case 'projects': return renderProject(asProjectItem(item));
+            case 'skills': return renderSkill(asSkillItem(item));
             case 'certifications':
                 return (
                     <View key={item.id} style={styles.itemWrapper}>
                         <View style={styles.row}>
-                            <Text style={styles.bold}>{(item as any).name}</Text>
-                            <Text style={styles.date}>{(item as any).date}</Text>
+                            <Text style={styles.bold}>{'name' in item ? item.name : ''}</Text>
+                            <Text style={styles.date}>{'date' in item ? item.date : ''}</Text>
                         </View>
-                        <Text style={styles.subtitle}>{(item as any).issuer}</Text>
+                        <Text style={styles.subtitle}>{'issuer' in item ? item.issuer : ''}</Text>
                     </View>
                 );
             case 'languages':
+                {
+                    const language = asLanguageItem(item);
                 return (
-                    <View key={item.id} style={{ width: '33%', marginBottom: 4 }}>
-                        <Text style={{ fontSize: 10 }}>
-                            {(item as any).name}
-                            <Text style={{ color: '#666', fontSize: 9 }}> - {(item as any).proficiency}</Text>
+                    <View key={item.id} style={{ width: PDF_COLUMN_WIDTHS.oneThird, marginBottom: 4 }}>
+                        <Text style={{ fontSize: 10 * sc }}>
+                            {language.name}
+                            <Text style={{ color: '#666', fontSize: 9 * sc }}>{` - ${language.proficiency}`}</Text>
                         </Text>
                     </View>
                 );
+                }
             default:
                 return (
                     <View key={item.id} style={styles.itemWrapper}>
                         <View style={styles.row}>
-                            <Text style={styles.bold}>{(item as any).title}</Text>
-                            <Text style={styles.date}>{(item as any).date}</Text>
+                            <Text style={styles.bold}>{'title' in item ? item.title : ''}</Text>
+                            <Text style={styles.date}>{'date' in item ? item.date : ''}</Text>
                         </View>
-                        {/*@ts-ignore*/}
-                        {(item as any).subtitle && <Text style={styles.subtitle}>{(item as any).subtitle}</Text>}
-                        {/*@ts-ignore*/}
-                        {(item as any).description && <Text style={styles.description}>{(item as any).description}</Text>}
+                        {'subtitle' in item && item.subtitle ? <Text style={styles.subtitle}>{item.subtitle}</Text> : null}
+                        {'description' in item && item.description ? <Text style={styles.description}>{item.description}</Text> : null}
                     </View>
                 );
         }
     };
 
     return (
-        <Page size="A4" style={styles.page}>
+        <Page size="A4" style={[styles.page, atsMode ? { fontFamily: 'Helvetica' } : {}]}>
             {/* HEADER */}
             <View style={styles.header}>
                 <Text style={styles.name}>{data.profile.fullName}</Text>
                 {data.profile.jobTitle && <Text style={styles.jobTitle}>{data.profile.jobTitle}</Text>}
 
                 <View style={styles.contact}>
-                    {data.profile.email && <Text>{data.profile.email}</Text>}
-                    {data.profile.phone && <Text>{data.profile.phone}</Text>}
-                    {data.profile.location && <Text>{data.profile.location}</Text>}
-                    {data.profile.url && <Link src={data.profile.url} style={styles.link}>{data.profile.url}</Link>}
+                    {contactItems.map((item, index) => (
+                        <React.Fragment key={`contact-${index}`}>
+                            {index > 0 && <Text>{' | '}</Text>}
+                            {item}
+                        </React.Fragment>
+                    ))}
                 </View>
             </View>
 
             {/* SUMMARY */}
             {data.profile.summary && (
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Summary</Text>
+                    <View style={styles.sectionTitleWrapper}>
+                        <Text style={styles.sectionTitleText}>Summary</Text>
+                    </View>
                     <Text style={styles.description}>{data.profile.summary}</Text>
                 </View>
             )}
@@ -211,12 +256,15 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
                 .filter(s => s.isVisible)
                 .map((section, index) => (
                     <View key={`${section.id}-${index}`} style={styles.section}>
-                        <Text style={styles.sectionTitle}>{section.title}</Text>
+                        <View style={styles.sectionTitleWrapper}>
+                            <Text style={styles.sectionTitleText}>
+                                {atsMode ? getAtsSectionTitle(section.type, section.title) : section.title}
+                            </Text>
+                        </View>
 
-                        {/* Grid layout for skills/languages in minimalist too */}
                         {section.type === 'skills' ? (
                             (() => {
-                                const hasCategories = section.items.some((item: any) => item.category);
+                                const hasCategories = sectionHasSkillCategories(section);
                                 if (!hasCategories) {
                                     return (
                                         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -224,18 +272,13 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
                                         </View>
                                     );
                                 }
-                                const grouped = section.items.reduce((acc, item: any) => {
-                                    const category = item.category || 'Other';
-                                    if (!acc[category]) acc[category] = [];
-                                    acc[category].push(item);
-                                    return acc;
-                                }, {} as Record<string, SectionItem[]>);
+                                const grouped = groupSkillItemsByCategory(section);
 
                                 return (
                                     <View>
                                         {Object.entries(grouped).map(([category, items]) => (
                                             <View key={category} style={{ marginBottom: 8 }}>
-                                                <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#666', marginBottom: 4, textTransform: 'uppercase' }}>
+                                                <Text style={{ fontSize: 9 * sc, fontWeight: 'bold', color: '#666', marginBottom: 4, textTransform: 'uppercase' }}>
                                                     {category}
                                                 </Text>
                                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -257,7 +300,7 @@ export const MinimalistTemplate: React.FC<TemplateProps> = ({ data }) => {
                         )}
 
                         {section.items.length === 0 && (
-                            <Text style={{ color: '#999', fontSize: 9, fontStyle: 'italic' }}>No items added yet.</Text>
+                            <Text style={{ color: '#999', fontSize: 9 * sc, fontStyle: 'italic' }}>No items added yet.</Text>
                         )}
                     </View>
                 ))}

@@ -14,32 +14,51 @@ interface ReviewSession {
 }
 
 export const ReviewPanel: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
-    const { backendId } = useResumeStore();
+    const { backendId, showNotification } = useResumeStore();
     const [sessions, setSessions] = useState<ReviewSession[]>([]);
     const [loading, setLoading] = useState(false);
     const [creating, setCreating] = useState(false);
     const [copiedToken, setCopiedToken] = useState<string | null>(null);
+    const [reviewError, setReviewError] = useState<string>('');
 
     useEffect(() => {
         if (isOpen && backendId) {
+            setReviewError('');
             setLoading(true);
             api.getReviewSessions(backendId)
-                .then(setSessions)
-                .catch(() => {})
+                .then((data) => {
+                    setSessions(data);
+                    setReviewError('');
+                })
+                .catch((err) => {
+                    console.error('Failed to load review sessions', err);
+                    setReviewError('Failed to load review sessions. Please try again.');
+                    showNotification('error', 'Failed to load review sessions.');
+                    setSessions([]);
+                })
                 .finally(() => setLoading(false));
+            return;
         }
-    }, [isOpen, backendId]);
+
+        setSessions([]);
+        setReviewError('');
+    }, [isOpen, backendId, showNotification]);
 
     const handleCreate = async () => {
         if (!backendId) return;
         setCreating(true);
+        setReviewError('');
         try {
             const session = await api.createReviewSession(backendId);
             setSessions((prev) => [
                 { ...session, commentCount: 0, unresolvedCount: 0, isExpired: false, createdAt: new Date().toISOString() },
                 ...prev,
             ]);
-        } catch {
+            showNotification('success', 'Review link generated.');
+        } catch (err) {
+            console.error('Failed to create review session', err);
+            setReviewError('Failed to generate review link. Please try again.');
+            showNotification('error', 'Failed to generate review link.');
         } finally {
             setCreating(false);
         }
@@ -49,14 +68,25 @@ export const ReviewPanel: React.FC<{ isOpen: boolean; onClose: () => void }> = (
         try {
             await api.deleteReviewSession(sessionId);
             setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-        } catch {
+            showNotification('success', 'Review session deleted.');
+        } catch (err) {
+            console.error('Failed to delete review session', err);
+            setReviewError('Failed to delete review session. Please try again.');
+            showNotification('error', 'Failed to delete review session.');
         }
     };
 
-    const copyLink = (token: string) => {
-        navigator.clipboard.writeText(`${window.location.origin}/review/${token}`);
-        setCopiedToken(token);
-        setTimeout(() => setCopiedToken(null), 2000);
+    const copyLink = async (token: string) => {
+        try {
+            await navigator.clipboard.writeText(`${window.location.origin}/review/${token}`);
+            setCopiedToken(token);
+            setTimeout(() => setCopiedToken(null), 2000);
+            showNotification('success', 'Review link copied.');
+        } catch (err) {
+            console.error('Failed to copy review link', err);
+            setReviewError('Failed to copy review link. Please copy it manually.');
+            showNotification('error', 'Failed to copy review link.');
+        }
     };
 
     if (!isOpen) return null;
@@ -83,6 +113,9 @@ export const ReviewPanel: React.FC<{ isOpen: boolean; onClose: () => void }> = (
                 </button>
                 {!backendId && (
                     <p className="mt-2 text-xs text-gray-400">Save the resume first to create review links.</p>
+                )}
+                {reviewError && (
+                    <p className="mt-2 text-xs text-red-600">{reviewError}</p>
                 )}
             </div>
 

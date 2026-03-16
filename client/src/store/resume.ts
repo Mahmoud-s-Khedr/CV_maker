@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import * as api from '../lib/api';
-import type { ResumeSchema, ResumeSection, SectionItem, SectionType } from '../types/resume';
+import { isBuiltInTemplateId } from '../components/pdf/builtInTemplates';
+import type { ResumeSchema, ResumeSection, SectionItem, SectionType, ThemeConfig, SocialLink } from '../types/resume';
 import type { TemplateConfig } from '../types/template';
 import { generateId } from '../types/resume';
 
@@ -10,7 +11,8 @@ interface ResumeState {
     notification: { type: 'success' | 'error'; message: string } | null;
 
     // Profile Actions
-    updateProfile: (field: keyof ResumeSchema['profile'], value: string) => void;
+    updateProfile: (field: Exclude<keyof ResumeSchema['profile'], 'links'>, value: string) => void;
+    updateProfileLinks: (links: SocialLink[]) => void;
 
     // Section Actions
     setSections: (sections: ResumeSchema['sections']) => void;
@@ -26,6 +28,7 @@ interface ResumeState {
 
     // Template
     updateTemplate: (templateId: string) => void;
+    updateFontSize: (size: NonNullable<ThemeConfig['fontSize']>) => void;
 
     // Notifications
     showNotification: (type: 'success' | 'error', message: string) => void;
@@ -47,6 +50,10 @@ interface ResumeState {
     shareKey: string | null;
     viewCount: number;
     togglePublic: (isPublic: boolean) => Promise<void>;
+
+    // ATS Mode
+    atsMode: boolean;
+    toggleAtsMode: () => void;
 }
 
 const INITIAL_RESUME: ResumeSchema = {
@@ -56,6 +63,7 @@ const INITIAL_RESUME: ResumeSchema = {
             primaryColor: '#2563EB',
             fontFamily: 'Inter',
             spacing: 'standard',
+            fontSize: 'medium',
         },
     },
     profile: {
@@ -66,6 +74,7 @@ const INITIAL_RESUME: ResumeSchema = {
         location: '',
         url: '',
         summary: '',
+        links: [],
     },
     sections: [
         {
@@ -104,6 +113,11 @@ export const useResumeStore = create<ResumeState>()(
         updateProfile: (field, value) =>
             set((state) => {
                 state.resume.profile[field] = value;
+            }),
+
+        updateProfileLinks: (links) =>
+            set((state) => {
+                state.resume.profile.links = links;
             }),
 
         // Section Actions
@@ -181,6 +195,13 @@ export const useResumeStore = create<ResumeState>()(
             }),
 
         // Template
+        updateFontSize: (size) =>
+            set((state) => {
+                if (state.resume.meta) {
+                    state.resume.meta.themeConfig.fontSize = size;
+                }
+            }),
+
         updateTemplate: (templateId: string) => {
             set((state) => {
                 if (!state.resume.meta) {
@@ -276,9 +297,7 @@ export const useResumeStore = create<ResumeState>()(
         // Dynamic Templates
         dynamicTemplateConfig: null,
         loadDynamicTemplate: async (templateId) => {
-            // Check if it's a standard template first to avoid unnecessary API calls
-            const STANDARD_TEMPLATES = ['modern', 'minimalist', 'standard', 'professional', 'executive', 'creative'];
-            if (STANDARD_TEMPLATES.includes(templateId)) {
+            if (isBuiltInTemplateId(templateId)) {
                 set((state) => { state.dynamicTemplateConfig = null; });
                 return;
             }
@@ -301,6 +320,11 @@ export const useResumeStore = create<ResumeState>()(
         isPublic: false,
         shareKey: null,
         viewCount: 0,
+        // ATS Mode
+        atsMode: false,
+        toggleAtsMode: () =>
+            set((s) => { s.atsMode = !s.atsMode; }),
+
         togglePublic: async (isPublic) => {
             const state = get();
             if (!state.backendId) {

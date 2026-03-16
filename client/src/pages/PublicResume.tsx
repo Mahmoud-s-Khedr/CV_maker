@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import axios from 'axios';
 import * as api from '../lib/api';
 import { usePDF } from '@react-pdf/renderer';
 import { ResumeDocument } from '../components/pdf/ResumeDocument';
 import { PDFPreview } from '../components/editor/PDFPreview';
+import { isBuiltInTemplateId } from '../components/pdf/builtInTemplates';
 import { makeResumePdfFilename } from '../lib/filename';
 import type { ResumeSchema } from '../types/resume';
 import type { TemplateConfig } from '../types/template';
@@ -86,9 +88,7 @@ export const PublicResume: React.FC = () => {
                 // Fetch template config if dynamic
                 if (content.meta?.templateId) {
                     try {
-                        // Check if it's a standard ID first
-                        const STANDARD_TEMPLATES = ['modern', 'minimalist', 'standard', 'professional', 'executive', 'creative'];
-                        if (!STANDARD_TEMPLATES.includes(content.meta.templateId)) {
+                        if (!isBuiltInTemplateId(content.meta.templateId)) {
                             const template = await api.getTemplate(content.meta.templateId);
                             setDynamicConfig(template.config);
                         } else {
@@ -101,9 +101,13 @@ export const PublicResume: React.FC = () => {
                     }
                 }
 
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error(err);
-                setError(err.response?.data?.error || 'Resume not found or private');
+                setError(
+                    axios.isAxiosError(err)
+                        ? err.response?.data?.error || 'Resume not found or private'
+                        : 'Resume not found or private'
+                );
             } finally {
                 setLoading(false);
             }

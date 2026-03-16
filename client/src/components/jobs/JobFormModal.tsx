@@ -4,6 +4,8 @@ import { X } from 'lucide-react';
 import type { JobApplication, ApplicationStatus, CreateJobInput } from '../../types/job';
 import * as api from '../../lib/api';
 
+type ResumeOption = { id: string; title: string };
+
 interface Props {
     isOpen: boolean;
     onClose: () => void;
@@ -16,46 +18,69 @@ const STATUSES: ApplicationStatus[] = ['SAVED', 'APPLIED', 'INTERVIEW', 'OFFER',
 
 export const JobFormModal: React.FC<Props> = ({ isOpen, onClose, onSubmit, initialData, prefilledResumeId }) => {
     const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<CreateJobInput>();
-    const [resumes, setResumes] = useState<{ id: string; title: string }[]>([]);
+    const [resumes, setResumes] = useState<ResumeOption[]>([]);
     const [error, setError] = useState('');
+    const [resumesError, setResumesError] = useState('');
+    const [isLoadingResumes, setIsLoadingResumes] = useState(false);
 
     useEffect(() => {
-        if (isOpen) {
-            api.getUserResumes().then((data: any[]) => {
-                setResumes(data.map((r) => ({ id: r.id, title: r.title })));
-            }).catch(() => {});
-
-            if (initialData) {
-                reset({
-                    jobTitle: initialData.jobTitle,
-                    company: initialData.company,
-                    url: initialData.url || '',
-                    resumeId: initialData.resumeId || '',
-                    notes: initialData.notes || '',
-                    salary: initialData.salary || '',
-                    status: initialData.status,
-                });
-            } else {
-                reset({
-                    jobTitle: '',
-                    company: '',
-                    url: '',
-                    resumeId: prefilledResumeId || '',
-                    notes: '',
-                    salary: '',
-                    status: 'SAVED',
-                });
-            }
+        if (!isOpen) {
+            return;
         }
+
+        const loadResumes = async () => {
+            setIsLoadingResumes(true);
+            setResumesError('');
+
+            try {
+                const data = await api.getUserResumes() as ResumeOption[];
+                setResumes(data.map((resume) => ({ id: resume.id, title: resume.title })));
+            } catch (err) {
+                console.error('Failed to load resumes for job form', err);
+                setResumes([]);
+                setResumesError('Could not load resumes. You can still save without attaching one.');
+            } finally {
+                setIsLoadingResumes(false);
+            }
+        };
+
+        void loadResumes();
+
+        if (initialData) {
+            reset({
+                jobTitle: initialData.jobTitle,
+                company: initialData.company,
+                url: initialData.url || '',
+                resumeId: initialData.resumeId || '',
+                notes: initialData.notes || '',
+                salary: initialData.salary || '',
+                status: initialData.status,
+            });
+            return;
+        }
+
+        reset({
+            jobTitle: '',
+            company: '',
+            url: '',
+            resumeId: prefilledResumeId || '',
+            notes: '',
+            salary: '',
+            status: 'SAVED',
+        });
     }, [isOpen, initialData, prefilledResumeId, reset]);
 
     const handleFormSubmit = async (data: CreateJobInput) => {
         setError('');
         try {
-            await onSubmit(data);
+            await onSubmit({
+                ...data,
+                resumeId: data.resumeId?.trim() ? data.resumeId : null,
+            });
             onClose();
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to save');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to save';
+            setError(message);
         }
     };
 
@@ -129,11 +154,14 @@ export const JobFormModal: React.FC<Props> = ({ isOpen, onClose, onSubmit, initi
                         <label className="block text-xs font-medium text-gray-600 mb-1">Resume</label>
                         <select
                             {...register('resumeId')}
+                            disabled={isLoadingResumes}
                             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
                         >
                             <option value="">None</option>
                             {resumes.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
                         </select>
+                        {isLoadingResumes && <p className="mt-1 text-xs text-gray-500">Loading resumes...</p>}
+                        {resumesError && <p className="mt-1 text-xs text-amber-700">{resumesError}</p>}
                     </div>
 
                     <div>

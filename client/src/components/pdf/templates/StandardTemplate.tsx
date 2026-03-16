@@ -1,14 +1,29 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { Page, Text, View, StyleSheet, Link } from '@react-pdf/renderer';
-import type { ResumeSchema, SectionItem } from '../../../types/resume';
+import type { ExperienceItem, ProjectItem, ResumeSchema, SectionItem, SkillItem } from '../../../types/resume';
+import {
+    asEducationItem,
+    asExperienceItem,
+    asLanguageItem,
+    asProjectItem,
+    asSkillItem,
+    formatDateRange,
+    formatExternalUrl,
+    groupSkillItemsByCategory,
+    normalizeExternalUrl,
+    sectionHasSkillCategories,
+} from '../templateUtils';
+import { getAtsSectionTitle } from '../atsConstants';
+import { PDF_COLUMN_WIDTHS, buildPadding } from '../layoutTokens';
 
-const styles = StyleSheet.create({
+const FONT_SCALE_MAP = { small: 0.85, medium: 1.0, large: 1.1, xlarge: 1.2 } as const;
+
+const makeStyles = (sc: number) => StyleSheet.create({
     page: {
         flexDirection: 'column',
         backgroundColor: '#FFFFFF',
         padding: 40,
-        fontSize: 10,
+        fontSize: 10 * sc,
         fontFamily: 'Helvetica',
         lineHeight: 1.5,
     },
@@ -19,7 +34,7 @@ const styles = StyleSheet.create({
         paddingBottom: 12,
     },
     name: {
-        fontSize: 24,
+        fontSize: 24 * sc,
         fontWeight: 'bold',
         textTransform: 'uppercase',
         marginBottom: 6,
@@ -27,30 +42,32 @@ const styles = StyleSheet.create({
         color: '#1a1a1a',
     },
     jobTitle: {
-        fontSize: 14,
+        fontSize: 14 * sc,
         color: '#444',
         marginBottom: 8,
         textTransform: 'uppercase',
         letterSpacing: 1,
     },
     contact: {
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#555',
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 12,
     },
     section: {
         marginBottom: 16,
     },
-    sectionTitle: {
-        fontSize: 12,
-        fontWeight: 'bold',
+    // Border lives on the View wrapper — Text cannot have borderBottomWidth in react-pdf
+    sectionTitleWrapper: {
         marginBottom: 8,
-        textTransform: 'uppercase',
+        paddingBottom: 4,
         borderBottomWidth: 1,
         borderBottomColor: '#eee',
-        paddingBottom: 4,
+    },
+    sectionTitleText: {
+        fontSize: 12 * sc,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
         letterSpacing: 1,
         color: '#1a1a1a',
     },
@@ -65,22 +82,22 @@ const styles = StyleSheet.create({
     },
     bold: {
         fontWeight: 'bold',
-        fontSize: 10,
+        fontSize: 10 * sc,
         color: '#000',
     },
     subtitle: {
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#333',
         fontStyle: 'italic',
     },
     date: {
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#666',
         textAlign: 'right',
     },
     description: {
         marginTop: 2,
-        fontSize: 9,
+        fontSize: 9 * sc,
         color: '#333',
         lineHeight: 1.4,
     },
@@ -90,18 +107,18 @@ const styles = StyleSheet.create({
     },
     bullet: {
         width: 10,
-        fontSize: 10,
+        fontSize: 10 * sc,
         marginLeft: 4,
     },
     bulletText: {
         flex: 1,
-        fontSize: 9,
+        fontSize: 9 * sc,
     },
     tag: {
         backgroundColor: '#f3f4f6',
-        padding: '2 6',
+        ...buildPadding(2, 6),
         borderRadius: 4,
-        fontSize: 8,
+        fontSize: 8 * sc,
         marginRight: 4,
         marginBottom: 4,
     },
@@ -112,21 +129,46 @@ const styles = StyleSheet.create({
     link: {
         color: '#2563EB',
         textDecoration: 'none',
-    }
+    },
 });
 
 interface TemplateProps {
     data: ResumeSchema;
+    atsMode?: boolean;
 }
 
-export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
-    const renderExperience = (item: any) => (
+export const StandardTemplate: React.FC<TemplateProps> = ({ data, atsMode = false }) => {
+    const sc = FONT_SCALE_MAP[data.meta?.themeConfig?.fontSize ?? 'medium'];
+    const styles = makeStyles(sc);
+
+    const contactItems: React.ReactNode[] = [];
+    if (data.profile.email) contactItems.push(<Text key="email">{data.profile.email}</Text>);
+    if (data.profile.phone) contactItems.push(<Text key="phone">{data.profile.phone}</Text>);
+    if (data.profile.location) contactItems.push(<Text key="location">{data.profile.location}</Text>);
+    if (data.profile.url) {
+        contactItems.push(
+            <Link
+                key="url"
+                src={normalizeExternalUrl(data.profile.url)}
+                style={styles.link}
+            >
+                {formatExternalUrl(data.profile.url)}
+            </Link>
+        );
+    }
+    (data.profile.links ?? []).forEach(l => {
+        contactItems.push(
+            <Link key={l.id} src={normalizeExternalUrl(l.url)} style={styles.link}>
+                {`${l.label}: ${formatExternalUrl(l.url)}`}
+            </Link>
+        );
+    });
+
+    const renderExperience = (item: ExperienceItem) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.position}</Text>
-                <Text style={styles.date}>
-                    {item.startDate} {item.endDate ? `- ${item.endDate}` : '- Present'}
-                </Text>
+                <Text style={styles.date}>{formatDateRange(item.startDate, item.endDate, { fallbackToPresent: true })}</Text>
             </View>
             <View style={styles.row}>
                 <Text style={styles.subtitle}>{item.company} {item.location ? ` | ${item.location}` : ''}</Text>
@@ -135,13 +177,11 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
         </View>
     );
 
-    const renderEducation = (item: any) => (
+    const renderEducation = (item: ReturnType<typeof asEducationItem>) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.institution}</Text>
-                <Text style={styles.date}>
-                    {item.startDate} {item.endDate ? `- ${item.endDate}` : ''}
-                </Text>
+                <Text style={styles.date}>{formatDateRange(item.startDate, item.endDate)}</Text>
             </View>
             <View style={styles.row}>
                 <Text style={styles.subtitle}>{item.degree} {item.field ? `in ${item.field}` : ''}</Text>
@@ -151,16 +191,24 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
         </View>
     );
 
-    const renderSkill = (item: any) => (
-        <View key={item.id} style={{ width: '50%', marginBottom: 4 }}>
-            <Text style={{ fontSize: 9 }}>
+    const renderSkill = (item: SkillItem) => (
+        <View key={item.id} style={{ width: PDF_COLUMN_WIDTHS.half, marginBottom: 4 }}>
+            <Text style={{ fontSize: 9 * sc }}>
                 <Text style={{ fontWeight: 'bold' }}>{item.name}</Text>
                 {item.level && <Text style={{ color: '#666' }}> - {item.level}</Text>}
             </Text>
         </View>
     );
 
-    const renderProject = (item: any) => (
+    const activeSectionTitleWrapper = atsMode
+        ? [styles.sectionTitleWrapper, { borderBottomColor: '#000000' }]
+        : styles.sectionTitleWrapper;
+
+    const activeSectionTitleText = atsMode
+        ? [styles.sectionTitleText, { color: '#000000' }]
+        : styles.sectionTitleText;
+
+    const renderProject = (item: ProjectItem) => (
         <View key={item.id} style={styles.itemWrapper}>
             <View style={styles.row}>
                 <Text style={styles.bold}>{item.name}</Text>
@@ -176,40 +224,41 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
 
     const renderItem = (type: string, item: SectionItem) => {
         switch (type) {
-            case 'experience': return renderExperience(item);
-            case 'education': return renderEducation(item);
-            case 'projects': return renderProject(item);
-            case 'skills': return renderSkill(item); // Handled separately for layout usually, but fallback here
+            case 'experience': return renderExperience(asExperienceItem(item));
+            case 'education': return renderEducation(asEducationItem(item));
+            case 'projects': return renderProject(asProjectItem(item));
+            case 'skills': return renderSkill(asSkillItem(item));
             case 'certifications':
                 return (
                     <View key={item.id} style={styles.itemWrapper}>
                         <View style={styles.row}>
-                            <Text style={styles.bold}>{(item as any).name}</Text>
-                            <Text style={styles.date}>{(item as any).date}</Text>
+                            <Text style={styles.bold}>{'name' in item ? item.name : ''}</Text>
+                            <Text style={styles.date}>{'date' in item ? item.date : ''}</Text>
                         </View>
-                        <Text style={styles.subtitle}>{(item as any).issuer}</Text>
+                        <Text style={styles.subtitle}>{'issuer' in item ? item.issuer : ''}</Text>
                     </View>
                 );
             case 'languages':
+                {
+                    const language = asLanguageItem(item);
                 return (
-                    <View key={item.id} style={{ width: '50%', marginBottom: 4 }}>
-                        <Text style={{ fontSize: 9 }}>
-                            <Text style={{ fontWeight: 'bold' }}>{(item as any).name}</Text>
-                            <Text style={{ color: '#666' }}> - {(item as any).proficiency}</Text>
+                    <View key={item.id} style={{ width: PDF_COLUMN_WIDTHS.half, marginBottom: 4 }}>
+                        <Text style={{ fontSize: 9 * sc }}>
+                            <Text style={{ fontWeight: 'bold' }}>{language.name}</Text>
+                            <Text style={{ color: '#666' }}>{language.proficiency ? ` - ${language.proficiency}` : ''}</Text>
                         </Text>
                     </View>
                 );
+                }
             default:
                 return (
                     <View key={item.id} style={styles.itemWrapper}>
                         <View style={styles.row}>
-                            <Text style={styles.bold}>{(item as any).title}</Text>
-                            <Text style={styles.date}>{(item as any).date}</Text>
+                            <Text style={styles.bold}>{'title' in item ? item.title : ''}</Text>
+                            <Text style={styles.date}>{'date' in item ? item.date : ''}</Text>
                         </View>
-                        {/*@ts-ignore*/}
-                        {(item as any).subtitle && <Text style={styles.subtitle}>{(item as any).subtitle}</Text>}
-                        {/*@ts-ignore*/}
-                        {(item as any).description && <Text style={styles.description}>{(item as any).description}</Text>}
+                        {'subtitle' in item && item.subtitle ? <Text style={styles.subtitle}>{item.subtitle}</Text> : null}
+                        {'description' in item && item.description ? <Text style={styles.description}>{item.description}</Text> : null}
                     </View>
                 );
         }
@@ -223,17 +272,21 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
                 {data.profile.jobTitle && <Text style={styles.jobTitle}>{data.profile.jobTitle}</Text>}
 
                 <View style={styles.contact}>
-                    {data.profile.email && <Text>{data.profile.email}</Text>}
-                    {data.profile.phone && <Text>• {data.profile.phone}</Text>}
-                    {data.profile.location && <Text>• {data.profile.location}</Text>}
-                    {data.profile.url && <Link src={data.profile.url} style={styles.link}>{data.profile.url}</Link>}
+                    {contactItems.map((item, index) => (
+                        <React.Fragment key={`contact-${index}`}>
+                            {index > 0 && <Text>{' | '}</Text>}
+                            {item}
+                        </React.Fragment>
+                    ))}
                 </View>
             </View>
 
             {/* SUMMARY */}
             {data.profile.summary && (
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Professional Summary</Text>
+                    <View style={activeSectionTitleWrapper}>
+                        <Text style={activeSectionTitleText}>Professional Summary</Text>
+                    </View>
                     <Text style={styles.description}>{data.profile.summary}</Text>
                 </View>
             )}
@@ -243,11 +296,15 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
                 .filter(s => s.isVisible)
                 .map((section, index) => (
                     <View key={`${section.id}-${index}`} style={styles.section}>
-                        <Text style={styles.sectionTitle}>{section.title}</Text>
+                        <View style={activeSectionTitleWrapper}>
+                            <Text style={activeSectionTitleText}>
+                                {atsMode ? getAtsSectionTitle(section.type, section.title) : section.title}
+                            </Text>
+                        </View>
 
                         {section.type === 'skills' ? (
                             (() => {
-                                const hasCategories = section.items.some((item: any) => item.category);
+                                const hasCategories = sectionHasSkillCategories(section);
                                 if (!hasCategories) {
                                     return (
                                         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -255,22 +312,17 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
                                         </View>
                                     );
                                 }
-                                const grouped = section.items.reduce((acc, item: any) => {
-                                    const category = item.category || 'Other';
-                                    if (!acc[category]) acc[category] = [];
-                                    acc[category].push(item);
-                                    return acc;
-                                }, {} as Record<string, SectionItem[]>);
+                                const grouped = groupSkillItemsByCategory(section);
 
                                 return (
                                     <View>
                                         {Object.entries(grouped).map(([category, items]) => (
                                             <View key={category} style={{ marginBottom: 6 }}>
-                                                <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#555', marginBottom: 2, textTransform: 'uppercase' }}>
+                                                <Text style={{ fontSize: 10 * sc, fontWeight: 'bold', color: '#555', marginBottom: 2, textTransform: 'uppercase' }}>
                                                     {category}
                                                 </Text>
                                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                                                    {items.map(item => renderItem(section.type, item))}
+                                                    {items.map((item) => renderItem(section.type, item))}
                                                 </View>
                                             </View>
                                         ))}
@@ -288,7 +340,7 @@ export const StandardTemplate: React.FC<TemplateProps> = ({ data }) => {
                         )}
 
                         {section.items.length === 0 && (
-                            <Text style={{ color: '#999', fontSize: 9, fontStyle: 'italic' }}>No items added yet.</Text>
+                            <Text style={{ color: '#999', fontSize: 9 * sc, fontStyle: 'italic' }}>No items added yet.</Text>
                         )}
                     </View>
                 ))}

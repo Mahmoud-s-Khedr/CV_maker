@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/auth';
 import * as api from '../lib/api';
 import type { Resume } from '../types/resume';
 import { Toast } from '../components/ui/Toast';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const ResumeCardSkeleton: React.FC = () => (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-pulse">
@@ -45,8 +46,9 @@ export const DashboardPage: React.FC = () => {
     };
 
     useEffect(() => {
+        if (!userId) return;
         fetchResumes();
-    }, []);
+    }, [userId]);
 
     const handleCreateNew = () => {
         navigate('/editor');
@@ -67,7 +69,7 @@ export const DashboardPage: React.FC = () => {
 
     const handleDuplicate = async (resume: Resume) => {
         try {
-            const copyContent = { ...resume.content };
+            const copyContent = structuredClone(resume.content);
             copyContent.profile.fullName = `${copyContent.profile.fullName} (Copy)`;
 
             await api.saveResume(copyContent);
@@ -82,58 +84,60 @@ export const DashboardPage: React.FC = () => {
     if (!userId) return null;
 
     return (
-        <div className="p-4 sm:p-6 lg:p-8">
-            <Toast />
-            <div className="max-w-6xl mx-auto space-y-8">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Resumes</h1>
-                        <p className="text-gray-500 mt-1">Manage and organize your CVs</p>
-                    </div>
-                    <button
-                        onClick={handleCreateNew}
-                        className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm font-medium sm:w-auto w-full"
-                    >
-                        <Plus className="w-5 h-5" />
-                        Create New Resume
-                    </button>
-                </div>
-
-                {/* Content */}
-                {isLoading ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {[...Array(3)].map((_, i) => <ResumeCardSkeleton key={i} />)}
-                    </div>
-                ) : resumes.length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-xl border border-gray-200 shadow-sm">
-                        <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Plus className="w-8 h-8 text-blue-600" />
+        <ErrorBoundary fallback={<div className="p-6 text-sm text-red-600">Failed to render dashboard.</div>}>
+            <div className="p-4 sm:p-6 lg:p-8">
+                <Toast />
+                <div className="max-w-6xl mx-auto space-y-8">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Resumes</h1>
+                            <p className="text-gray-500 mt-1">Manage and organize your CVs</p>
                         </div>
-                        <h3 className="text-xl font-semibold text-gray-900 mb-2">No resumes yet</h3>
-                        <p className="text-gray-500 mb-6 max-w-sm mx-auto">
-                            Create your first professional resume in minutes with our AI-powered builder.
-                        </p>
                         <button
                             onClick={handleCreateNew}
-                            className="text-blue-600 font-medium hover:text-blue-800"
+                            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm font-medium sm:w-auto w-full"
                         >
-                            Create your first resume &rarr;
+                            <Plus className="w-5 h-5" />
+                            Create New Resume
                         </button>
                     </div>
-                ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {resumes.map((resume) => (
-                            <ResumeCard
-                                key={resume.id}
-                                resume={resume}
-                                onDelete={handleDelete}
-                                onDuplicate={handleDuplicate}
-                            />
-                        ))}
-                    </div>
-                )}
+
+                    {/* Content */}
+                    {isLoading ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {[...Array(3)].map((_, i) => <ResumeCardSkeleton key={i} />)}
+                        </div>
+                    ) : resumes.length === 0 ? (
+                        <div className="text-center py-20 bg-white rounded-xl border border-gray-200 shadow-sm">
+                            <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Plus className="w-8 h-8 text-blue-600" />
+                            </div>
+                            <h3 className="text-xl font-semibold text-gray-900 mb-2">No resumes yet</h3>
+                            <p className="text-gray-500 mb-6 max-w-sm mx-auto">
+                                Create your first professional resume in minutes with our AI-powered builder.
+                            </p>
+                            <button
+                                onClick={handleCreateNew}
+                                className="text-blue-600 font-medium hover:text-blue-800"
+                            >
+                                Create your first resume &rarr;
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {resumes.map((resume) => (
+                                <ResumeCard
+                                    key={resume.id}
+                                    resume={resume}
+                                    onDelete={handleDelete}
+                                    onDuplicate={handleDuplicate}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
+        </ErrorBoundary>
     );
 };

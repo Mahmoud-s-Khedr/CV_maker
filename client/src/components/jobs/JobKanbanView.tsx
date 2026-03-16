@@ -34,7 +34,7 @@ const KanbanColumn: React.FC<{
     return (
         <div
             ref={setNodeRef}
-            className={`flex-1 min-w-[200px] max-w-[260px] flex flex-col ${isOver ? 'bg-blue-50/50' : ''} rounded-lg transition`}
+            className={`flex-1 min-w-[220px] max-w-[280px] lg:min-w-0 lg:max-w-none flex flex-col ${isOver ? 'bg-blue-50/50' : ''} rounded-lg transition`}
         >
             <div className={`border-t-2 ${color} rounded-t-lg px-3 py-2 bg-gray-50`}>
                 <h3 className="text-sm font-semibold text-gray-700">{label}</h3>
@@ -96,7 +96,7 @@ export const JobKanbanView: React.FC<Props> = ({ applications, onEdit, onStatusC
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
         >
-            <div className="flex gap-3 overflow-x-auto pb-4">
+            <div className="flex gap-3 overflow-x-auto pb-4 lg:grid lg:grid-cols-5 lg:overflow-visible">
                 {COLUMNS.map((col) => (
                     <KanbanColumn
                         key={col.status}

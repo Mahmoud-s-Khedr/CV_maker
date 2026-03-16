@@ -1,73 +1,42 @@
-# React + TypeScript + Vite
+# Client
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Commands
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev
+npm run build
+npm run preview
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Local preview recovery
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`vite preview` can fail with a blank page on `localhost` if the browser is still holding a stale service worker or old cached assets from an older build on the same origin.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+The client now performs a localhost-only cleanup in `index.html` before loading the app bundle:
+
+- unregisters existing service workers for the current localhost origin
+- deletes Cache Storage entries for that origin
+- reloads the page once after cleanup
+
+If preview is still blank, do the browser-side cleanup as well:
+
+1. Open the browser devtools for `http://localhost:4173`.
+2. Remove any service worker in Application/Storage.
+3. Clear site data for the origin.
+4. Retry in a private window or with extensions disabled for localhost.
+
+The `content-script.js` and `XrayWrapper` console errors are browser-extension noise unless they also reproduce in a clean profile.
+
+## Local auth setup
+
+When running the frontend locally, the backend must allow the exact frontend origin through `CORS_ORIGINS`.
+
+- Vite dev default: `http://localhost:5173`
+- Vite preview default: `http://localhost:4173`
+
+Google Sign-In also requires the same origin to be added to the OAuth client's Authorized JavaScript origins in Google Cloud Console. For local work, add both:
+
+- `http://localhost:5173`
+- `http://localhost:4173`
+
+Keep `VITE_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID` set to the same OAuth client.

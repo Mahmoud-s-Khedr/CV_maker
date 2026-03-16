@@ -21,7 +21,7 @@ A powerful, developer-friendly resume builder featuring a WYSIWYG drag-and-drop 
     -   **User**: Create, edit, export, and share resumes.
     -   **Recruiter**: Search for public candidates and view profiles.
     -   **Admin**: Manage users, templates, and view system analytics.
--   **Premium Feature Gating**: Paymob payment integration with `requirePremium` middleware. AI analysis and premium templates are gated behind subscription.
+-   **Premium Feature Gating**: Stripe payment integration with `requirePremium` middleware. AI analysis and premium templates are gated behind subscription.
 -   **Security**: JWT authentication on all API routes, ownership checks, Zod input validation, rate limiting (`express-rate-limit`), and cryptographic share keys.
 -   **Password Reset**: Full forgot-password / reset-password flow with email via Resend.
 -   **Mobile Responsive**: Edit/Preview toggle on mobile, responsive dashboard and landing page.
@@ -45,7 +45,7 @@ A powerful, developer-friendly resume builder featuring a WYSIWYG drag-and-drop 
 -   **Validation**: Zod
 -   **Rate Limiting**: express-rate-limit
 -   **Email**: Resend
--   **Payments**: Paymob
+-   **Payments**: Stripe
 
 ## Project Structure
 
@@ -87,18 +87,21 @@ A powerful, developer-friendly resume builder featuring a WYSIWYG drag-and-drop 
     ```
 
 2.  **Environment Setup**
-    Create a `.env` file in both `client/` and `server/` directories based on the provided examples or architecture docs. Key variables include:
+    Create a root `.env` file from `.env.example`. The backend reads the root `.env` first and can optionally override server-only values from `server/.env` using `server/.env.example`. Key variables include:
     -   `DATABASE_URL`
     -   `JWT_SECRET`
     -   `OPENROUTER_API_KEY` (for AI features)
-    -   `PAYMOB_API_KEY` (for payments)
+    -   `STRIPE_SECRET_KEY` (for Stripe payments)
+    -   `STRIPE_WEBHOOK_SECRET` (for Stripe webhook signature verification)
+    -   `CLIENT_URL` (frontend URL used for Stripe success/cancel redirects; defaults to `http://localhost:4173`)
     -   `RESEND_API_KEY` (for emails)
+    -   `VITE_API_URL` (frontend API base, defaults to `http://localhost:4000`)
 
 3.  **Run with Docker (Recommended for complete stack)**
     ```bash
     docker-compose up --build
     ```
-    This will start the Postgres database, Backend API, and Frontend.
+    This will start the Postgres database and backend API. Run the frontend separately with `npm run dev` in `client/` if you want the Vite development server.
 
 4.  **Run Locally (Manual)**
 
@@ -117,6 +120,7 @@ A powerful, developer-friendly resume builder featuring a WYSIWYG drag-and-drop 
     npm install
     npm run dev
     ```
+    The local frontend defaults to `http://localhost:4173`, and the API defaults to `http://localhost:4000/api`.
 
 ## API Overview
 
@@ -129,7 +133,7 @@ A powerful, developer-friendly resume builder featuring a WYSIWYG drag-and-drop 
 | Templates | `/api/templates` | No | List and view templates |
 | Admin | `/api/admin` | Yes (Admin) | User management, template CRUD, audit logs |
 | Recruiter | `/api/recruiter` | Mixed | Public resume view (no auth), search (auth) |
-| Payment | `/api/payment` | Yes | Initiate Paymob payment, webhook |
+| Payment | `/api/payment` | Yes | Initiate Stripe payment, webhook |
 
 ## Documentation
 

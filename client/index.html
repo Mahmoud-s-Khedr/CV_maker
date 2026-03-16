@@ -6,6 +6,53 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HandisCV</title>
+  <script>
+    (function () {
+      const host = window.location.hostname;
+      const isLocalhost =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '[::1]';
+
+      if (!isLocalhost || !('serviceWorker' in navigator)) {
+        return;
+      }
+
+      const resetKey = 'handiscv-preview-reset';
+
+      Promise.all([
+        navigator.serviceWorker.getRegistrations().then((registrations) =>
+          Promise.all(registrations.map((registration) => registration.unregister())).then(
+            () => registrations.length > 0,
+          ),
+        ),
+        'caches' in window
+          ? caches.keys().then((keys) =>
+              Promise.all(keys.map((key) => caches.delete(key))).then(() => keys.length > 0),
+            )
+          : Promise.resolve(false),
+      ])
+        .then(([removedRegistrations, removedCaches]) => {
+          const didReset = removedRegistrations || removedCaches;
+
+          if (!didReset) {
+            sessionStorage.removeItem(resetKey);
+            return;
+          }
+
+          if (sessionStorage.getItem(resetKey) === '1') {
+            sessionStorage.removeItem(resetKey);
+            return;
+          }
+
+          sessionStorage.setItem(resetKey, '1');
+          window.location.reload();
+        })
+        .catch(() => {
+          sessionStorage.removeItem(resetKey);
+        });
+    })();
+  </script>
 </head>
 
 <body>

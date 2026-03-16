@@ -9,12 +9,19 @@ export const AccountSettingsPage: React.FC = () => {
     const [twoFactorEnabled, setTwoFactorEnabled] = useState(user?.twoFactorEnabled ?? false);
     const [tokenCopied, setTokenCopied] = useState(false);
     const [showToken, setShowToken] = useState(false);
+    const [tokenCopyError, setTokenCopyError] = useState('');
 
     const handleCopyToken = async () => {
         if (!token) return;
-        await navigator.clipboard.writeText(token);
-        setTokenCopied(true);
-        setTimeout(() => setTokenCopied(false), 2000);
+        setTokenCopyError('');
+        try {
+            await navigator.clipboard.writeText(token);
+            setTokenCopied(true);
+            setTimeout(() => setTokenCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy extension token', err);
+            setTokenCopyError('Could not copy token. Please copy it manually from the field.');
+        }
     };
 
     return (
@@ -94,6 +101,7 @@ export const AccountSettingsPage: React.FC = () => {
                         Treat this like a password — anyone with this token can access your account via the API.
                         It expires when your session expires.
                     </p>
+                    {tokenCopyError && <p className="text-xs text-red-600 mt-2">{tokenCopyError}</p>}
                 </div>
             </div>
         </div>

@@ -24,8 +24,12 @@ export interface CreateJobInput {
     jobTitle: string;
     company: string;
     url?: string;
-    resumeId?: string;
+    resumeId?: string | null;
     notes?: string;
     salary?: string;
     status?: ApplicationStatus;
+}
+
+export interface UpdateJobInput extends Partial<CreateJobInput> {
+    appliedAt?: string;
 }

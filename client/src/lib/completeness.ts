@@ -21,27 +21,27 @@ const rules: ScoringRule[] = [
     { points: 15, check: (r) => (r.profile.summary?.trim().length ?? 0) >= 50, hint: 'Write a professional summary (at least 50 characters)' },
     {
         points: 15,
-        check: (r) => r.sections.some((s) => s.type === 'experience' && s.items.length >= 1),
+        check: (r) => r.sections.some((s) => s.type === 'experience' && Array.isArray(s.items) && s.items.length >= 1),
         hint: 'Add at least 1 work experience',
     },
     {
         points: 5,
-        check: (r) => r.sections.some((s) => s.type === 'experience' && s.items.length >= 2),
+        check: (r) => r.sections.some((s) => s.type === 'experience' && Array.isArray(s.items) && s.items.length >= 2),
         hint: 'Add a second work experience for a stronger profile',
     },
     {
         points: 10,
-        check: (r) => r.sections.some((s) => s.type === 'education' && s.items.length >= 1),
+        check: (r) => r.sections.some((s) => s.type === 'education' && Array.isArray(s.items) && s.items.length >= 1),
         hint: 'Add your education',
     },
     {
         points: 10,
-        check: (r) => r.sections.some((s) => s.type === 'skills' && s.items.length >= 3),
+        check: (r) => r.sections.some((s) => s.type === 'skills' && Array.isArray(s.items) && s.items.length >= 3),
         hint: 'Add at least 3 skills',
     },
     {
         points: 5,
-        check: (r) => r.sections.some((s) => !['experience', 'education', 'skills'].includes(s.type) && s.items.length >= 1),
+        check: (r) => r.sections.some((s) => !['experience', 'education', 'skills'].includes(s.type) && Array.isArray(s.items) && s.items.length >= 1),
         hint: 'Add a projects, certifications, or languages section',
     },
 ];
