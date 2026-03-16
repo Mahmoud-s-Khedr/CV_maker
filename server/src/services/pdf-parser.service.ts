@@ -1,3 +1,5 @@
+import { logError } from '../utils/logger';
+
 // pdf-parse@2.x exports a PDFParse class (not a callable function).
 // When loaded from CommonJS it may appear under `.default`.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -33,7 +35,7 @@ export const parseResumePDF = async (buffer: Buffer): Promise<string> => {
         // Fallback: return whatever can be stringified
         return String((result as any)?.text ?? '');
     } catch (error) {
-        console.error('Error parsing PDF:', error);
+        logError(error as Error, { context: 'pdf.parseResumePDF' });
         throw new Error('Failed to parse PDF file');
     }
 };

@@ -5,6 +5,7 @@ import config from '../config/config';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { generateTotpSecret, verifyTotpCode, generateQrCodeDataUrl } from '../services/totp.service';
 import { logError, logInfo } from '../utils/logger';
+import { sendError, sendMessage } from '../utils/http';
 
 const generateToken = (userId: string, email: string, role: string) => {
     return jwt.sign(
@@ -24,12 +25,12 @@ export const setup = async (req: Request, res: Response) => {
         });
 
         if (!dbUser) {
-            res.status(404).json({ error: 'User not found' });
+            sendError(res, 404, 'USER_NOT_FOUND', 'User not found');
             return;
         }
 
         if (dbUser.twoFactorEnabled) {
-            res.status(400).json({ error: '2FA is already enabled' });
+            sendError(res, 400, 'TWO_FACTOR_ALREADY_ENABLED', '2FA is already enabled');
             return;
         }
 
@@ -46,7 +47,7 @@ export const setup = async (req: Request, res: Response) => {
         res.json({ qrCodeUrl, secret });
     } catch (error) {
         logError(error as Error, { context: '2fa-setup' });
-        res.status(500).json({ error: 'Failed to set up 2FA' });
+        sendError(res, 500, 'TWO_FACTOR_SETUP_FAILED', 'Failed to set up 2FA');
     }
 };
 
@@ -62,18 +63,18 @@ export const verifySetup = async (req: Request, res: Response) => {
         });
 
         if (!dbUser || !dbUser.totpSecret) {
-            res.status(400).json({ error: 'Please initiate 2FA setup first' });
+            sendError(res, 400, 'TWO_FACTOR_SETUP_REQUIRED', 'Please initiate 2FA setup first');
             return;
         }
 
         if (dbUser.twoFactorEnabled) {
-            res.status(400).json({ error: '2FA is already enabled' });
+            sendError(res, 400, 'TWO_FACTOR_ALREADY_ENABLED', '2FA is already enabled');
             return;
         }
 
         const isValid = verifyTotpCode(dbUser.totpSecret, code);
         if (!isValid) {
-            res.status(400).json({ error: 'Invalid verification code. Please try again.' });
+            sendError(res, 400, 'INVALID_TWO_FACTOR_CODE', 'Invalid verification code. Please try again.');
             return;
         }
 
@@ -83,10 +84,10 @@ export const verifySetup = async (req: Request, res: Response) => {
         });
 
         logInfo('2FA enabled successfully', { userId: user.userId });
-        res.json({ success: true, message: '2FA has been enabled successfully' });
+        sendMessage(res, 200, '2FA has been enabled successfully', { success: true });
     } catch (error) {
         logError(error as Error, { context: '2fa-verify-setup' });
-        res.status(500).json({ error: 'Failed to verify 2FA setup' });
+        sendError(res, 500, 'TWO_FACTOR_VERIFY_SETUP_FAILED', 'Failed to verify 2FA setup');
     }
 };
 
@@ -102,13 +103,13 @@ export const disable = async (req: Request, res: Response) => {
         });
 
         if (!dbUser || !dbUser.twoFactorEnabled || !dbUser.totpSecret) {
-            res.status(400).json({ error: '2FA is not enabled' });
+            sendError(res, 400, 'TWO_FACTOR_NOT_ENABLED', '2FA is not enabled');
             return;
         }
 
         const isValid = verifyTotpCode(dbUser.totpSecret, code);
         if (!isValid) {
-            res.status(400).json({ error: 'Invalid verification code' });
+            sendError(res, 400, 'INVALID_TWO_FACTOR_CODE', 'Invalid verification code');
             return;
         }
 
@@ -118,10 +119,10 @@ export const disable = async (req: Request, res: Response) => {
         });
 
         logInfo('2FA disabled', { userId: user.userId });
-        res.json({ success: true, message: '2FA has been disabled' });
+        sendMessage(res, 200, '2FA has been disabled', { success: true });
     } catch (error) {
         logError(error as Error, { context: '2fa-disable' });
-        res.status(500).json({ error: 'Failed to disable 2FA' });
+        sendError(res, 500, 'TWO_FACTOR_DISABLE_FAILED', 'Failed to disable 2FA');
     }
 };
 
@@ -135,12 +136,12 @@ export const validate = async (req: Request, res: Response) => {
         try {
             decoded = jwt.verify(tempToken, config.auth.jwtSecret);
         } catch {
-            res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
+            sendError(res, 401, 'INVALID_OR_EXPIRED_TOKEN', 'Invalid or expired token. Please log in again.');
             return;
         }
 
         if (decoded.purpose !== '2fa') {
-            res.status(401).json({ error: 'Invalid token' });
+            sendError(res, 401, 'INVALID_TOKEN', 'Invalid token');
             return;
         }
 
@@ -150,13 +151,13 @@ export const validate = async (req: Request, res: Response) => {
         });
 
         if (!user || !user.twoFactorEnabled || !user.totpSecret) {
-            res.status(400).json({ error: '2FA is not enabled for this account' });
+            sendError(res, 400, 'TWO_FACTOR_NOT_ENABLED', '2FA is not enabled for this account');
             return;
         }
 
         const isValid = verifyTotpCode(user.totpSecret, code);
         if (!isValid) {
-            res.status(400).json({ error: 'Invalid verification code' });
+            sendError(res, 400, 'INVALID_TWO_FACTOR_CODE', 'Invalid verification code');
             return;
         }
 
@@ -176,6 +177,6 @@ export const validate = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: '2fa-validate' });
-        res.status(500).json({ error: 'Failed to validate 2FA code' });
+        sendError(res, 500, 'TWO_FACTOR_VALIDATE_FAILED', 'Failed to validate 2FA code');
     }
 };

@@ -11,6 +11,7 @@ router.get('/users', adminController.getUsers);
 router.delete('/users/:id', adminController.deleteUser);
 router.get('/logs', adminController.getAuditLogs);
 router.post('/templates', adminController.createTemplate);
+router.put('/templates/:id', adminController.updateTemplate);
 router.delete('/templates/:id', adminController.deleteTemplate);
 
 export default router;

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import config from '../config/config';
 import { prisma } from '../lib/prisma';
+import { logError } from '../utils/logger';
 
 export interface AuthRequest extends Request {
     user?: {
@@ -43,10 +44,17 @@ export const requirePremium = async (req: Request, res: Response, next: NextFunc
         return;
     }
 
-    const dbUser = await prisma.user.findUnique({
-        where: { id: user.userId },
-        select: { isPremium: true },
-    });
+    let dbUser;
+    try {
+        dbUser = await prisma.user.findUnique({
+            where: { id: user.userId },
+            select: { isPremium: true },
+        });
+    } catch (error) {
+        logError(error as Error, { context: 'requirePremium' });
+        res.status(500).json({ error: 'Internal server error' });
+        return;
+    }
 
     if (!dbUser?.isPremium) {
         res.status(403).json({ error: 'Premium subscription required' });

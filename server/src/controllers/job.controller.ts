@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
 import * as jobService from '../services/job.service';
 import { logError } from '../utils/logger';
+import { sendError, sendMessage } from '../utils/http';
 
 // POST /api/jobs
 export const create = async (req: Request, res: Response) => {
@@ -11,7 +12,7 @@ export const create = async (req: Request, res: Response) => {
         res.status(201).json(job);
     } catch (error) {
         logError(error as Error, { context: 'createJobApplication' });
-        res.status(500).json({ error: 'Failed to create job application' });
+        sendError(res, 500, 'JOB_CREATE_FAILED', 'Failed to create job application');
     }
 };
 
@@ -24,7 +25,7 @@ export const list = async (req: Request, res: Response) => {
         res.json(jobs);
     } catch (error) {
         logError(error as Error, { context: 'listJobApplications' });
-        res.status(500).json({ error: 'Failed to fetch job applications' });
+        sendError(res, 500, 'JOB_LIST_FAILED', 'Failed to fetch job applications');
     }
 };
 
@@ -36,7 +37,7 @@ export const stats = async (req: Request, res: Response) => {
         res.json(result);
     } catch (error) {
         logError(error as Error, { context: 'getJobStats' });
-        res.status(500).json({ error: 'Failed to fetch job stats' });
+        sendError(res, 500, 'JOB_STATS_FETCH_FAILED', 'Failed to fetch job stats');
     }
 };
 
@@ -46,13 +47,13 @@ export const get = async (req: Request, res: Response) => {
         const user = (req as AuthRequest).user!;
         const job = await jobService.getJobApplicationById(req.params.id as string);
         if (!job || job.userId !== user.userId) {
-            res.status(404).json({ error: 'Job application not found' });
+            sendError(res, 404, 'JOB_NOT_FOUND', 'Job application not found');
             return;
         }
         res.json(job);
     } catch (error) {
         logError(error as Error, { context: 'getJobApplication' });
-        res.status(500).json({ error: 'Failed to fetch job application' });
+        sendError(res, 500, 'JOB_FETCH_FAILED', 'Failed to fetch job application');
     }
 };
 
@@ -62,14 +63,14 @@ export const update = async (req: Request, res: Response) => {
         const user = (req as AuthRequest).user!;
         const existing = await jobService.getJobApplicationById(req.params.id as string);
         if (!existing || existing.userId !== user.userId) {
-            res.status(404).json({ error: 'Job application not found' });
+            sendError(res, 404, 'JOB_NOT_FOUND', 'Job application not found');
             return;
         }
         const job = await jobService.updateJobApplication(req.params.id as string, req.body);
         res.json(job);
     } catch (error) {
         logError(error as Error, { context: 'updateJobApplication' });
-        res.status(500).json({ error: 'Failed to update job application' });
+        sendError(res, 500, 'JOB_UPDATE_FAILED', 'Failed to update job application');
     }
 };
 
@@ -79,13 +80,13 @@ export const remove = async (req: Request, res: Response) => {
         const user = (req as AuthRequest).user!;
         const existing = await jobService.getJobApplicationById(req.params.id as string);
         if (!existing || existing.userId !== user.userId) {
-            res.status(404).json({ error: 'Job application not found' });
+            sendError(res, 404, 'JOB_NOT_FOUND', 'Job application not found');
             return;
         }
         await jobService.deleteJobApplication(req.params.id as string);
-        res.json({ message: 'Job application deleted' });
+        sendMessage(res, 200, 'Job application deleted');
     } catch (error) {
         logError(error as Error, { context: 'deleteJobApplication' });
-        res.status(500).json({ error: 'Failed to delete job application' });
+        sendError(res, 500, 'JOB_DELETE_FAILED', 'Failed to delete job application');
     }
 };

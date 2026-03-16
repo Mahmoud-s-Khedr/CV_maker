@@ -11,4 +11,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), paymentContro
 // Create checkout session requires login
 router.post('/create-checkout-session', authenticate, paymentController.createCheckoutSession);
 
+// Verify checkout session ownership/payment status
+router.post('/verify-session', authenticate, paymentController.verifySession);
+
 export default router;

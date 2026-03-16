@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { startOfUtcDay } from '../utils/dates';
 import {
     sendResumeViewedEmail,
     sendWeeklyDigestEmail,
@@ -61,15 +62,20 @@ export async function notifyResumeViewed(resumeId: string, viewCount: number): P
  */
 export async function sendWeeklyDigests(): Promise<void> {
     try {
-        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const today = startOfUtcDay(new Date());
+        const oneWeekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
 
-        // Find users who have public resumes with views
+        // Find users who have public resumes with view activity in the last 7 UTC days.
         const users = await prisma.user.findMany({
             where: {
                 resumes: {
                     some: {
                         isPublic: true,
-                        lastViewedAt: { gte: oneWeekAgo },
+                        dailyViewStats: {
+                            some: {
+                                day: { gte: oneWeekAgo },
+                            },
+                        },
                     },
                 },
             },
@@ -83,29 +89,47 @@ export async function sendWeeklyDigests(): Promise<void> {
                     },
                     select: {
                         title: true,
-                        viewCount: true,
+                        dailyViewStats: {
+                            where: {
+                                day: { gte: oneWeekAgo },
+                            },
+                            select: {
+                                viewCount: true,
+                            },
+                        },
                     },
                 },
             },
         });
 
+        const notificationLogs: Array<{ userId: string; type: string }> = [];
+        let deliveredCount = 0;
+
         for (const user of users) {
             if (user.notificationPreference && !user.notificationPreference.weeklyDigest) continue;
 
-            const totalViews = user.resumes.reduce((sum, r) => sum + r.viewCount, 0);
+            const resumeSummaries = user.resumes
+                .map((resume) => ({
+                    title: resume.title,
+                    views: resume.dailyViewStats.reduce((sum, stat) => sum + stat.viewCount, 0),
+                }))
+                .filter((resume) => resume.views > 0);
+
+            const totalViews = resumeSummaries.reduce((sum, resume) => sum + resume.views, 0);
             if (totalViews === 0) continue;
 
-            const resumeSummaries = user.resumes
-                .filter((r) => r.viewCount > 0)
-                .map((r) => ({ title: r.title, views: r.viewCount }));
-
             await sendWeeklyDigestEmail(user.email, { totalViews, resumeSummaries });
-            await prisma.notificationLog.create({
-                data: { userId: user.id, type: 'weekly_digest' },
+            notificationLogs.push({ userId: user.id, type: 'weekly_digest' });
+            deliveredCount += 1;
+        }
+
+        if (notificationLogs.length > 0) {
+            await prisma.notificationLog.createMany({
+                data: notificationLogs,
             });
         }
 
-        logInfo('Weekly digests sent', { userCount: users.length });
+        logInfo('Weekly digests sent', { userCount: users.length, deliveredCount });
     } catch (error) {
         logError(error as Error, { context: 'sendWeeklyDigests' });
     }

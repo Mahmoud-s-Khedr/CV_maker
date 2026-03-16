@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
-import crypto from 'crypto';
 import * as resumeService from '../services/resume.service';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { logError } from '../utils/logger';
-import { prisma } from '../lib/prisma';
+import { sendError, sendMessage } from '../utils/http';
 
 export const createResume = async (req: Request, res: Response) => {
     try {
@@ -13,7 +12,7 @@ export const createResume = async (req: Request, res: Response) => {
         res.status(201).json(resume);
     } catch (error) {
         logError(error as Error, { context: 'createResume' });
-        res.status(500).json({ error: 'Failed to create resume' });
+        sendError(res, 500, 'RESUME_CREATE_FAILED', 'Failed to create resume');
     }
 };
 
@@ -23,17 +22,17 @@ export const getResume = async (req: Request, res: Response) => {
         const userId = (req as AuthRequest).user!.userId;
         const resume = await resumeService.getResumeById(id as string);
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
         if (resume.userId !== userId) {
-            res.status(403).json({ error: 'Access denied' });
+            sendError(res, 403, 'ACCESS_DENIED', 'Access denied');
             return;
         }
         res.json(resume);
     } catch (error) {
         logError(error as Error, { context: 'getResume' });
-        res.status(500).json({ error: 'Failed to fetch resume' });
+        sendError(res, 500, 'RESUME_FETCH_FAILED', 'Failed to fetch resume');
     }
 };
 
@@ -43,46 +42,43 @@ export const updateResume = async (req: Request, res: Response) => {
         const userId = (req as AuthRequest).user!.userId;
         const data = req.body;
 
-        // Auto-versioning: Save current state as version before update
         const currentResume = await resumeService.getResumeById(id as string);
         if (!currentResume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
         if (currentResume.userId !== userId) {
-            res.status(403).json({ error: 'Access denied' });
+            sendError(res, 403, 'ACCESS_DENIED', 'Access denied');
             return;
         }
 
-        await resumeService.createVersion(id as string, currentResume.content);
-        resumeService.pruneOldVersions(id as string).catch(() => {});
-
-        // Check premium template access
         const templateId = data.content?.meta?.templateId;
         if (templateId) {
-            const template = await resumeService.getTemplateById(templateId);
-            if (template?.isPremium) {
-                const user = await prisma.user.findUnique({
-                    where: { id: userId },
-                    select: { isPremium: true },
-                });
-                if (!user?.isPremium) {
-                    res.status(403).json({ error: 'Premium template requires upgrade' });
+            try {
+                await resumeService.assertTemplateAccess(userId, templateId);
+            } catch (error) {
+                if (error instanceof Error && error.name === 'PREMIUM_TEMPLATE_REQUIRED') {
+                    sendError(res, 403, 'PREMIUM_TEMPLATE_REQUIRED', error.message);
                     return;
                 }
+                throw error;
             }
         }
 
         // Handle Public/Share Key logic
         if (data.isPublic === true && !currentResume.shareKey) {
-            data.shareKey = crypto.randomBytes(8).toString('base64url');
+            data.shareKey = resumeService.createShareKey();
         }
 
-        const resume = await resumeService.updateResume(id as string, data);
+        const resume = await resumeService.updateResumeWithVersion(
+            id as string,
+            currentResume.content,
+            data
+        );
         res.json(resume);
     } catch (error) {
         logError(error as Error, { context: 'updateResume' });
-        res.status(500).json({ error: 'Failed to update resume' });
+        sendError(res, 500, 'RESUME_UPDATE_FAILED', 'Failed to update resume');
     }
 };
 
@@ -93,7 +89,7 @@ export const getUserResumes = async (req: Request, res: Response) => {
         res.json(resumes);
     } catch (error) {
         logError(error as Error, { context: 'getUserResumes' });
-        res.status(500).json({ error: 'Failed to fetch user resumes' });
+        sendError(res, 500, 'USER_RESUMES_FETCH_FAILED', 'Failed to fetch user resumes');
     }
 };
 
@@ -104,11 +100,11 @@ export const deleteResume = async (req: Request, res: Response) => {
 
         const resume = await resumeService.getResumeById(id as string);
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
         if (resume.userId !== userId) {
-            res.status(403).json({ error: 'Access denied' });
+            sendError(res, 403, 'ACCESS_DENIED', 'Access denied');
             return;
         }
 
@@ -116,7 +112,7 @@ export const deleteResume = async (req: Request, res: Response) => {
         res.status(204).send();
     } catch (error) {
         logError(error as Error, { context: 'deleteResume' });
-        res.status(500).json({ error: 'Failed to delete resume' });
+        sendError(res, 500, 'RESUME_DELETE_FAILED', 'Failed to delete resume');
     }
 };
 
@@ -128,19 +124,19 @@ export const createVersion = async (req: Request, res: Response) => {
 
         const resume = await resumeService.getResumeById(id as string);
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
         if (resume.userId !== userId) {
-            res.status(403).json({ error: 'Access denied' });
+            sendError(res, 403, 'ACCESS_DENIED', 'Access denied');
             return;
         }
 
         await resumeService.createVersion(id as string, content);
-        res.status(201).json({ message: 'Version saved' });
+        sendMessage(res, 201, 'Version saved');
     } catch (error) {
         logError(error as Error, { context: 'createVersion' });
-        res.status(500).json({ error: 'Failed to save version' });
+        sendError(res, 500, 'RESUME_VERSION_CREATE_FAILED', 'Failed to save version');
     }
 };
 
@@ -151,11 +147,11 @@ export const getResumeVersions = async (req: Request, res: Response) => {
 
         const resume = await resumeService.getResumeById(id as string);
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
         if (resume.userId !== userId) {
-            res.status(403).json({ error: 'Access denied' });
+            sendError(res, 403, 'ACCESS_DENIED', 'Access denied');
             return;
         }
 
@@ -163,6 +159,6 @@ export const getResumeVersions = async (req: Request, res: Response) => {
         res.json(versions);
     } catch (error) {
         logError(error as Error, { context: 'getResumeVersions' });
-        res.status(500).json({ error: 'Failed to fetch versions' });
+        sendError(res, 500, 'RESUME_VERSIONS_FETCH_FAILED', 'Failed to fetch versions');
     }
 };

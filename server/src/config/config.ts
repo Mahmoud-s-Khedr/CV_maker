@@ -1,8 +1,12 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load .env file from server root
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+const projectRootEnvPath = path.resolve(__dirname, '../../../.env');
+const serverLocalEnvPath = path.resolve(__dirname, '../../.env');
+
+// Load shared defaults from the project root, then allow server/.env to override them locally.
+dotenv.config({ path: projectRootEnvPath });
+dotenv.config({ path: serverLocalEnvPath, override: true });
 
 // Helper to get required env var (throws if missing in production)
 const getEnvVar = (key: string, defaultValue?: string): string => {
@@ -18,6 +22,14 @@ const getOptionalEnvVar = (key: string, defaultValue: string = ''): string => {
     return process.env[key] || defaultValue;
 };
 
+const getRequiredEnvVar = (key: string): string => {
+    const value = process.env[key]?.trim();
+    if (!value) {
+        throw new Error(`Missing required environment variable: ${key}`);
+    }
+    return value;
+};
+
 // Helper for numeric env vars
 const getNumericEnvVar = (key: string, defaultValue: number): number => {
     const value = process.env[key];
@@ -31,6 +43,11 @@ const getBoolEnvVar = (key: string, defaultValue: boolean): boolean => {
     return value.toLowerCase() === 'true' || value === '1';
 };
 
+const defaultLocalClientOrigins = [
+    'http://localhost:5173',
+    'http://localhost:4173',
+].join(',');
+
 export const config = {
     // Environment
     env: getOptionalEnvVar('NODE_ENV', 'development'),
@@ -40,7 +57,7 @@ export const config = {
     // Server
     server: {
         port: getNumericEnvVar('PORT', 4000),
-        corsOrigins: getOptionalEnvVar('CORS_ORIGINS', 'http://localhost:5173'),
+        corsOrigins: getOptionalEnvVar('CORS_ORIGINS', defaultLocalClientOrigins),
     },
 
     // Database
@@ -50,7 +67,7 @@ export const config = {
 
     // Authentication
     auth: {
-        jwtSecret: getEnvVar('JWT_SECRET', 'dev-secret-change-in-production'),
+        jwtSecret: getRequiredEnvVar('JWT_SECRET'),
         jwtExpiresIn: getOptionalEnvVar('JWT_EXPIRES_IN', '7d'),
         googleClientId: getOptionalEnvVar('GOOGLE_CLIENT_ID'),
     },
@@ -59,14 +76,14 @@ export const config = {
     email: {
         resendApiKey: getOptionalEnvVar('RESEND_API_KEY'),
         fromEmail: getOptionalEnvVar('FROM_EMAIL', 'noreply@cvmaker.com'),
-        appUrl: getOptionalEnvVar('APP_URL', 'http://localhost:5173'),
+        appUrl: getOptionalEnvVar('APP_URL', 'http://localhost:4173'),
     },
 
     // Payments (Stripe)
     stripe: {
         secretKey: getOptionalEnvVar('STRIPE_SECRET_KEY'),
         webhookSecret: getOptionalEnvVar('STRIPE_WEBHOOK_SECRET'),
-        clientUrl: getOptionalEnvVar('CLIENT_URL', 'http://localhost:5173'),
+        clientUrl: getOptionalEnvVar('CLIENT_URL', 'http://localhost:4173'),
     },
 
     // AI / OpenRouter

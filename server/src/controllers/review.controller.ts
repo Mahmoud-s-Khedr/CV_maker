@@ -3,6 +3,20 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logError, logInfo } from '../utils/logger';
+import { sendError, sendMessage } from '../utils/http';
+
+interface ReviewComment {
+    id: string;
+    sectionId: string;
+    text: string;
+    reviewerName: string;
+    createdAt: string;
+    resolved: boolean;
+}
+
+const getReviewComments = (comments: unknown): ReviewComment[] => {
+    return Array.isArray(comments) ? (comments as ReviewComment[]) : [];
+};
 
 // POST /api/resumes/:id/review-sessions — Create a review session
 export const createSession = async (req: Request, res: Response) => {
@@ -15,7 +29,7 @@ export const createSession = async (req: Request, res: Response) => {
             where: { id: resumeId, userId: user.userId },
         });
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
 
@@ -34,7 +48,7 @@ export const createSession = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: 'createReviewSession' });
-        res.status(500).json({ error: 'Failed to create review session' });
+        sendError(res, 500, 'REVIEW_SESSION_CREATE_FAILED', 'Failed to create review session');
     }
 };
 
@@ -48,7 +62,7 @@ export const getSessions = async (req: Request, res: Response) => {
             where: { id: resumeId, userId: user.userId },
         });
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found' });
+            sendError(res, 404, 'RESUME_NOT_FOUND', 'Resume not found');
             return;
         }
 
@@ -57,9 +71,9 @@ export const getSessions = async (req: Request, res: Response) => {
             orderBy: { createdAt: 'desc' },
         });
 
-        const result = sessions.map((s) => {
-            const comments = Array.isArray(s.comments) ? s.comments : [];
-            const unresolvedCount = (comments as any[]).filter((c) => !c.resolved).length;
+        const result = sessions.map((s: (typeof sessions)[number]) => {
+            const comments = getReviewComments(s.comments);
+            const unresolvedCount = comments.filter((comment) => !comment.resolved).length;
             return {
                 id: s.id,
                 token: s.token,
@@ -74,7 +88,7 @@ export const getSessions = async (req: Request, res: Response) => {
         res.json(result);
     } catch (error) {
         logError(error as Error, { context: 'getReviewSessions' });
-        res.status(500).json({ error: 'Failed to fetch review sessions' });
+        sendError(res, 500, 'REVIEW_SESSIONS_FETCH_FAILED', 'Failed to fetch review sessions');
     }
 };
 
@@ -90,15 +104,15 @@ export const deleteSession = async (req: Request, res: Response) => {
         });
 
         if (!session || session.resume.userId !== user.userId) {
-            res.status(404).json({ error: 'Review session not found' });
+            sendError(res, 404, 'REVIEW_SESSION_NOT_FOUND', 'Review session not found');
             return;
         }
 
         await prisma.reviewSession.delete({ where: { id: sessionId } });
-        res.json({ message: 'Review session deleted' });
+        sendMessage(res, 200, 'Review session deleted');
     } catch (error) {
         logError(error as Error, { context: 'deleteReviewSession' });
-        res.status(500).json({ error: 'Failed to delete review session' });
+        sendError(res, 500, 'REVIEW_SESSION_DELETE_FAILED', 'Failed to delete review session');
     }
 };
 
@@ -110,34 +124,51 @@ export const resolveComment = async (req: Request, res: Response) => {
         const sessionId = req.params.sessionId as string;
         const commentId = req.params.commentId as string;
 
-        const session = await prisma.reviewSession.findFirst({
-            where: { id: sessionId, resumeId },
-            include: { resume: { select: { userId: true } } },
-        });
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const session = await prisma.reviewSession.findFirst({
+                where: { id: sessionId, resumeId },
+                include: { resume: { select: { userId: true } } },
+            });
 
-        if (!session || session.resume.userId !== user.userId) {
-            res.status(404).json({ error: 'Review session not found' });
-            return;
+            if (!session || session.resume.userId !== user.userId) {
+                sendError(res, 404, 'REVIEW_SESSION_NOT_FOUND', 'Review session not found');
+                return;
+            }
+
+            const comments = getReviewComments(session.comments);
+            const commentIndex = comments.findIndex((comment) => comment.id === commentId);
+            if (commentIndex === -1) {
+                sendError(res, 404, 'REVIEW_COMMENT_NOT_FOUND', 'Comment not found');
+                return;
+            }
+
+            if (comments[commentIndex].resolved) {
+                sendMessage(res, 200, 'Comment resolved');
+                return;
+            }
+
+            const nextComments = comments.map((comment) => (
+                comment.id === commentId ? { ...comment, resolved: true } : comment
+            ));
+
+            const updateResult = await prisma.reviewSession.updateMany({
+                where: {
+                    id: sessionId,
+                    updatedAt: session.updatedAt,
+                },
+                data: { comments: nextComments as any },
+            });
+
+            if (updateResult.count === 1) {
+                sendMessage(res, 200, 'Comment resolved');
+                return;
+            }
         }
 
-        const comments = (Array.isArray(session.comments) ? session.comments : []) as any[];
-        const commentIndex = comments.findIndex((c: any) => c.id === commentId);
-        if (commentIndex === -1) {
-            res.status(404).json({ error: 'Comment not found' });
-            return;
-        }
-
-        comments[commentIndex].resolved = true;
-
-        await prisma.reviewSession.update({
-            where: { id: sessionId },
-            data: { comments },
-        });
-
-        res.json({ message: 'Comment resolved' });
+        sendError(res, 409, 'REVIEW_COMMENT_CONFLICT', 'Comment was updated by another request. Please try again.');
     } catch (error) {
         logError(error as Error, { context: 'resolveComment' });
-        res.status(500).json({ error: 'Failed to resolve comment' });
+        sendError(res, 500, 'REVIEW_COMMENT_RESOLVE_FAILED', 'Failed to resolve comment');
     }
 };
 
@@ -154,12 +185,12 @@ export const getReviewSession = async (req: Request, res: Response) => {
         });
 
         if (!session) {
-            res.status(404).json({ error: 'Review session not found' });
+            sendError(res, 404, 'REVIEW_SESSION_NOT_FOUND', 'Review session not found');
             return;
         }
 
         if (session.expiresAt < new Date()) {
-            res.status(410).json({ error: 'This review link has expired' });
+            sendError(res, 410, 'REVIEW_SESSION_EXPIRED', 'This review link has expired');
             return;
         }
 
@@ -172,7 +203,7 @@ export const getReviewSession = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: 'getReviewSession' });
-        res.status(500).json({ error: 'Failed to fetch review session' });
+        sendError(res, 500, 'REVIEW_SESSION_FETCH_FAILED', 'Failed to fetch review session');
     }
 };
 
@@ -182,37 +213,46 @@ export const addComment = async (req: Request, res: Response) => {
         const token = req.params.token as string;
         const { sectionId, text, reviewerName } = req.body;
 
-        const session = await prisma.reviewSession.findUnique({ where: { token } });
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const session = await prisma.reviewSession.findUnique({ where: { token } });
 
-        if (!session) {
-            res.status(404).json({ error: 'Review session not found' });
-            return;
+            if (!session) {
+                sendError(res, 404, 'REVIEW_SESSION_NOT_FOUND', 'Review session not found');
+                return;
+            }
+
+            if (session.expiresAt < new Date()) {
+                sendError(res, 410, 'REVIEW_SESSION_EXPIRED', 'This review link has expired');
+                return;
+            }
+
+            const newComment: ReviewComment = {
+                id: crypto.randomUUID(),
+                sectionId,
+                text,
+                reviewerName,
+                createdAt: new Date().toISOString(),
+                resolved: false,
+            };
+            const comments = [...getReviewComments(session.comments), newComment];
+
+            const updateResult = await prisma.reviewSession.updateMany({
+                where: {
+                    id: session.id,
+                    updatedAt: session.updatedAt,
+                },
+                data: { comments: comments as any },
+            });
+
+            if (updateResult.count === 1) {
+                res.status(201).json(newComment);
+                return;
+            }
         }
 
-        if (session.expiresAt < new Date()) {
-            res.status(410).json({ error: 'This review link has expired' });
-            return;
-        }
-
-        const comments = (Array.isArray(session.comments) ? session.comments : []) as any[];
-        const newComment = {
-            id: crypto.randomUUID(),
-            sectionId,
-            text,
-            reviewerName,
-            createdAt: new Date().toISOString(),
-            resolved: false,
-        };
-        comments.push(newComment);
-
-        await prisma.reviewSession.update({
-            where: { token },
-            data: { comments },
-        });
-
-        res.status(201).json(newComment);
+        sendError(res, 409, 'REVIEW_COMMENT_CONFLICT', 'Review session was updated by another request. Please try again.');
     } catch (error) {
         logError(error as Error, { context: 'addReviewComment' });
-        res.status(500).json({ error: 'Failed to add comment' });
+        sendError(res, 500, 'REVIEW_COMMENT_ADD_FAILED', 'Failed to add comment');
     }
 };

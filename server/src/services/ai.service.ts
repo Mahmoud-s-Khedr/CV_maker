@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import config from '../config/config';
+import { logError } from '../utils/logger';
 
 
 export const analyzeResume = async (resumeContent: any) => {
@@ -42,7 +43,7 @@ export const analyzeResume = async (resumeContent: any) => {
         const result = completion.choices[0].message.content;
         return JSON.parse(result || '{}');
     } catch (error) {
-        console.error('AI Analysis Error:', error);
+        logError(error as Error, { context: 'ai.analyzeResume' });
         throw new Error('Failed to analyze resume');
     }
 };
@@ -106,7 +107,7 @@ export const parseResumeText = async (text: string) => {
         const result = completion.choices[0].message.content;
         return JSON.parse(result || '{}');
     } catch (error) {
-        console.error('AI Parsing Error:', error);
+        logError(error as Error, { context: 'ai.parseResumeText' });
         throw new Error('Failed to parse resume text');
     }
 };
@@ -152,7 +153,7 @@ export const analyzeJobFit = async (resumeContent: any, jobDescription: string) 
         const result = completion.choices[0].message.content;
         return JSON.parse(result || '{}');
     } catch (error) {
-        console.error('Job Fit Analysis Error:', error);
+        logError(error as Error, { context: 'ai.analyzeJobFit' });
         throw new Error('Failed to analyze job fit');
     }
 };

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logError } from '../utils/logger';
+import { sendError } from '../utils/http';
 
 // GET /api/notifications/preferences
 export const getPreferences = async (req: Request, res: Response) => {
@@ -27,7 +28,7 @@ export const getPreferences = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: 'getNotificationPreferences' });
-        res.status(500).json({ error: 'Failed to fetch notification preferences' });
+        sendError(res, 500, 'NOTIFICATION_PREFERENCES_FETCH_FAILED', 'Failed to fetch notification preferences');
     }
 };
 
@@ -62,6 +63,6 @@ export const updatePreferences = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: 'updateNotificationPreferences' });
-        res.status(500).json({ error: 'Failed to update notification preferences' });
+        sendError(res, 500, 'NOTIFICATION_PREFERENCES_UPDATE_FAILED', 'Failed to update notification preferences');
     }
 };

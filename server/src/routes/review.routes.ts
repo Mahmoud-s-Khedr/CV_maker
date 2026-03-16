@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
-import { generalLimiter } from '../middleware/rateLimiter';
+import { reviewCommentLimiter } from '../middleware/rateLimiter';
 import { addCommentSchema } from '../validation/review.schemas';
 import * as reviewController from '../controllers/review.controller';
 
@@ -15,6 +15,6 @@ router.patch('/resumes/:id/review-sessions/:sessionId/comments/:commentId', auth
 
 // Public reviewer routes (no auth, rate-limited)
 router.get('/review/:token', reviewController.getReviewSession);
-router.post('/review/:token/comments', generalLimiter, validate(addCommentSchema), reviewController.addComment);
+router.post('/review/:token/comments', reviewCommentLimiter, validate(addCommentSchema), reviewController.addComment);
 
 export default router;

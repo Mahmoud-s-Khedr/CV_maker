@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logError } from '../utils/logger';
 
 interface GitHubRepo {
     name: string;
@@ -45,7 +46,7 @@ export const fetchUserRepos = async (username: string, limit: number = 10) => {
             highlights: [`${repo.stargazers_count} Stars on GitHub`]
         }));
     } catch (error) {
-        console.error('GitHub API Error:', error);
+        logError(error as Error, { context: 'github.fetchUserRepos', username });
         throw new Error('Failed to fetch repositories from GitHub');
     }
 };

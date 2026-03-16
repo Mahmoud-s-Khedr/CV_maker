@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger, { logError } from '../utils/logger';
+import { parsePaginationValue, parsePositiveInt, isUuid } from '../utils/request';
+import { sendError, sendMessage } from '../utils/http';
 
 // Helper to log administrative actions (AuditLog is a generated Prisma model)
 const createAuditLog = async (adminId: string, action: string, details?: any) => {
@@ -20,9 +23,8 @@ const createAuditLog = async (adminId: string, action: string, details?: any) =>
 // GET /api/admin/users
 export const getUsers = async (req: Request, res: Response) => {
     try {
-        // Simple pagination
-        const page = parseInt(req.query.page as unknown as string) || 1;
-        const limit = parseInt(req.query.limit as unknown as string) || 20;
+        const page = parsePositiveInt(req.query.page, 1);
+        const limit = parsePaginationValue(req.query.limit, 20);
         const skip = (page - 1) * limit;
 
         const [users, total] = await prisma.$transaction([
@@ -55,7 +57,7 @@ export const getUsers = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'admin.getUsers' });
-        res.status(500).json({ error: 'Failed to fetch users' });
+        sendError(res, 500, 'ADMIN_USERS_FETCH_FAILED', 'Failed to fetch users');
     }
 };
 
@@ -65,9 +67,14 @@ export const deleteUser = async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
         const adminId = (req as any).user.userId;
 
+        if (!isUuid(id)) {
+            sendError(res, 400, 'INVALID_USER_ID', 'User ID must be a valid UUID');
+            return;
+        }
+
         // Prevent self-deletion
         if (id === adminId) {
-            res.status(400).json({ error: 'Cannot delete your own account' });
+            sendError(res, 400, 'SELF_DELETE_FORBIDDEN', 'Cannot delete your own account');
             return;
         }
 
@@ -77,19 +84,19 @@ export const deleteUser = async (req: Request, res: Response) => {
 
         await createAuditLog(adminId, 'USER_DELETE', { deletedUserId: id, email: user.email });
 
-        res.json({ message: 'User deleted successfully' });
+        sendMessage(res, 200, 'User deleted successfully');
 
     } catch (error) {
         logError(error as Error, { context: 'admin.deleteUser' });
-        res.status(500).json({ error: 'Failed to delete user' });
+        sendError(res, 500, 'ADMIN_DELETE_USER_FAILED', 'Failed to delete user');
     }
 };
 
 // GET /api/admin/logs
 export const getAuditLogs = async (req: Request, res: Response) => {
     try {
-        const page = parseInt(req.query.page as unknown as string) || 1;
-        const limit = parseInt(req.query.limit as unknown as string) || 50;
+        const page = parsePositiveInt(req.query.page, 1);
+        const limit = parsePaginationValue(req.query.limit, 50);
         const skip = (page - 1) * limit;
 
         const [logs, total] = await prisma.$transaction([
@@ -118,7 +125,7 @@ export const getAuditLogs = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'admin.getAuditLogs' });
-        res.status(500).json({ error: 'Failed to fetch audit logs' });
+        sendError(res, 500, 'ADMIN_AUDIT_LOGS_FETCH_FAILED', 'Failed to fetch audit logs');
     }
 };
 
@@ -143,7 +150,37 @@ export const createTemplate = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'admin.createTemplate' });
-        res.status(500).json({ error: 'Failed to create template' });
+        sendError(res, 500, 'ADMIN_CREATE_TEMPLATE_FAILED', 'Failed to create template');
+    }
+};
+
+// PUT /api/admin/templates/:id
+export const updateTemplate = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params as { id: string };
+        const adminId = (req as any).user.userId;
+        const { name, config, isPremium, thumbnailUrl } = req.body;
+
+        if (!isUuid(id)) {
+            sendError(res, 400, 'INVALID_TEMPLATE_ID', 'Template ID must be a valid UUID');
+            return;
+        }
+
+        const template = await prisma.template.update({
+            where: { id },
+            data: { name, config, isPremium: isPremium ?? false, thumbnailUrl },
+        });
+
+        await createAuditLog(adminId, 'TEMPLATE_UPDATE', { templateId: id, name });
+
+        res.json(template);
+    } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            sendError(res, 404, 'TEMPLATE_NOT_FOUND', 'Template not found');
+            return;
+        }
+        logError(error as Error, { context: 'admin.updateTemplate' });
+        sendError(res, 500, 'ADMIN_UPDATE_TEMPLATE_FAILED', 'Failed to update template');
     }
 };
 
@@ -153,15 +190,24 @@ export const deleteTemplate = async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
         const adminId = (req as any).user.userId;
 
+        if (!isUuid(id)) {
+            sendError(res, 400, 'INVALID_TEMPLATE_ID', 'Template ID must be a valid UUID');
+            return;
+        }
+
         const template = await prisma.template.delete({
             where: { id },
         });
 
         await createAuditLog(adminId, 'TEMPLATE_DELETE', { templateId: id, name: template.name });
 
-        res.json({ message: 'Template deleted successfully' });
+        sendMessage(res, 200, 'Template deleted successfully');
     } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            sendError(res, 404, 'TEMPLATE_NOT_FOUND', 'Template not found');
+            return;
+        }
         logError(error as Error, { context: 'admin.deleteTemplate' });
-        res.status(500).json({ error: 'Failed to delete template' });
+        sendError(res, 500, 'ADMIN_DELETE_TEMPLATE_FAILED', 'Failed to delete template');
     }
 };

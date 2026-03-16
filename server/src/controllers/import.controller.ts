@@ -5,11 +5,18 @@ import * as githubService from '../services/github.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
+import { sendError } from '../utils/http';
 
 export const importLinkedInPDF = async (req: Request, res: Response) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            sendError(res, 400, 'FILE_REQUIRED', 'No file uploaded');
+            return;
+        }
+
+        if (req.file.mimetype !== 'application/pdf') {
+            sendError(res, 400, 'INVALID_FILE_TYPE', 'Only PDF files are allowed');
+            return;
         }
 
         const buffer = req.file.buffer;
@@ -40,28 +47,28 @@ export const importLinkedInPDF = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
-        console.error('Import Error:', error);
-        res.status(500).json({ error: 'Failed to process PDF' });
+        logger.error('Import Error', { error });
+        sendError(res, 500, 'PDF_IMPORT_FAILED', 'Failed to process PDF');
     }
 };
 
 export const importGitHubRepos = async (req: Request, res: Response) => {
     try {
         const { username } = req.body;
-
-        if (!username) {
-            return res.status(400).json({ error: 'GitHub username is required' });
-        }
-
         const projects = await githubService.fetchUserRepos(username);
 
         res.json({
             success: true,
             data: projects
         });
-    } catch (error: any) {
-        console.error('GitHub Import Error:', error);
-        res.status(500).json({ error: error.message || 'Failed to import projects' });
+    } catch (error) {
+        logger.error('GitHub Import Error', { error });
+        sendError(
+            res,
+            500,
+            'GITHUB_IMPORT_FAILED',
+            error instanceof Error ? error.message : 'Failed to import projects'
+        );
     }
 };
 
@@ -192,11 +199,6 @@ export const importFromExtension = async (req: Request, res: Response) => {
     try {
         const { profileData } = req.body as { profileData: LinkedInScrapedProfile };
 
-        if (!profileData || !profileData.fullName) {
-            res.status(400).json({ error: 'Invalid profile data' });
-            return;
-        }
-
         const userId = (req as AuthRequest).user!.userId;
         const resumeContent = mapLinkedInToResumeSchema(profileData);
         const title = `${profileData.fullName} — LinkedIn Import`;
@@ -212,6 +214,6 @@ export const importFromExtension = async (req: Request, res: Response) => {
         res.status(201).json({ resumeId: resume.id, title: resume.title });
     } catch (error) {
         logger.error('LinkedIn extension import failed', { error });
-        res.status(500).json({ error: 'Import failed' });
+        sendError(res, 500, 'LINKEDIN_EXTENSION_IMPORT_FAILED', 'Import failed');
     }
 };

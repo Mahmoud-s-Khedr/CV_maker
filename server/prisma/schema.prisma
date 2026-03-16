@@ -38,6 +38,10 @@ model User {
   jobApplications        JobApplication[]
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
+
+  @@index([verificationExpiry])
+  @@index([resetExpiry])
+  @@index([twoFactorEnabled, updatedAt])
 }
 
 model Template {
@@ -57,6 +61,8 @@ model AuditLog {
   adminId   String
   admin     User     @relation(fields: [adminId], references: [id])
   createdAt DateTime @default(now())
+
+  @@index([adminId])
 }
 
 
@@ -72,11 +78,22 @@ model Resume {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-  versions        ResumeVersion[]
-  reviewSessions  ReviewSession[]
-  jobApplications JobApplication[]
+  versions         ResumeVersion[]
+  reviewSessions   ReviewSession[]
+  jobApplications  JobApplication[]
+  dailyViewStats   ResumeDailyViewStat[]
 
   @@index([userId])
+}
+
+model ResumeDailyViewStat {
+  resumeId   String
+  day        DateTime
+  viewCount  Int      @default(0)
+  resume     Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@id([resumeId, day])
+  @@index([day])
 }
 
 model ResumeVersion {

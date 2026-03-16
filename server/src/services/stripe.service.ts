@@ -1,7 +1,20 @@
 import Stripe from 'stripe';
 import config from '../config/config';
 
-const stripe = new Stripe(config.stripe.secretKey!);
+let stripeClient: Stripe | null = null;
+
+const getStripeClient = (): Stripe => {
+    const secret = config.stripe.secretKey?.trim();
+    if (!secret) {
+        throw new Error('Stripe is not configured: STRIPE_SECRET_KEY is missing');
+    }
+
+    if (!stripeClient) {
+        stripeClient = new Stripe(secret);
+    }
+
+    return stripeClient;
+};
 
 export const createCheckoutSession = async (
     userId: string,
@@ -9,7 +22,7 @@ export const createCheckoutSession = async (
     successUrl: string,
     cancelUrl: string
 ): Promise<Stripe.Checkout.Session> => {
-    return stripe.checkout.sessions.create({
+    return getStripeClient().checkout.sessions.create({
         mode: 'payment',
         payment_method_types: ['card'],
         customer_email: userEmail,
@@ -34,5 +47,9 @@ export const constructWebhookEvent = (
     sig: string,
     secret: string
 ): Stripe.Event => {
-    return stripe.webhooks.constructEvent(payload, sig, secret);
+    return getStripeClient().webhooks.constructEvent(payload, sig, secret);
+};
+
+export const retrieveCheckoutSession = async (sessionId: string): Promise<Stripe.Checkout.Session> => {
+    return getStripeClient().checkout.sessions.retrieve(sessionId);
 };

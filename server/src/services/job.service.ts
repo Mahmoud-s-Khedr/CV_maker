@@ -1,19 +1,24 @@
 import { prisma } from '../lib/prisma';
+import { z } from 'zod';
+import { createJobSchema, updateJobSchema } from '../validation/job.schemas';
 
-export const createJobApplication = async (userId: string, data: {
-    jobTitle: string;
-    company: string;
-    url?: string;
-    resumeId?: string;
-    notes?: string;
-    salary?: string;
-    status?: string;
-}) => {
+type CreateJobInput = z.infer<typeof createJobSchema>;
+type UpdateJobInput = z.infer<typeof updateJobSchema>;
+
+const normalizeOptionalJobFields = <T extends { resumeId?: string | null; url?: string }>(data: T) => ({
+    ...data,
+    resumeId: data.resumeId === '' ? null : (data.resumeId ?? null),
+    url: data.url?.trim() ? data.url : null,
+});
+
+export const createJobApplication = async (userId: string, data: CreateJobInput) => {
+    const normalizedData = normalizeOptionalJobFields(data);
+
     return prisma.jobApplication.create({
         data: {
             userId,
-            ...data,
-            status: (data.status as any) || 'SAVED',
+            ...normalizedData,
+            status: normalizedData.status || 'SAVED',
         },
         include: { resume: { select: { id: true, title: true } } },
     });
@@ -37,10 +42,12 @@ export const getJobApplicationById = async (id: string) => {
     });
 };
 
-export const updateJobApplication = async (id: string, data: Record<string, any>) => {
+export const updateJobApplication = async (id: string, data: UpdateJobInput) => {
+    const normalizedData = normalizeOptionalJobFields(data);
+
     return prisma.jobApplication.update({
         where: { id },
-        data,
+        data: normalizedData,
         include: { resume: { select: { id: true, title: true } } },
     });
 };

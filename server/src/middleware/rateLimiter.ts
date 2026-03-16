@@ -25,6 +25,17 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * Resend verification limiter - tight cap to prevent abuse/spam.
+ */
+export const resendVerificationLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 3,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many verification email requests. Please try again later.' },
+});
+
+/**
  * General API limiter — broad protection against scripted abuse.
  * 100 requests per minute per IP.
  */
@@ -34,4 +45,16 @@ export const generalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests. Please slow down.' },
+});
+
+/**
+ * Review comment limiter — prevents anonymous spam on public review links.
+ * 10 comments per 10 minutes per IP.
+ */
+export const reviewCommentLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many review comments. Please try again later.' },
 });

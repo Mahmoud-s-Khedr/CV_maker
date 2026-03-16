@@ -7,9 +7,12 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import config from '../config/config';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
-import logger, { logError, logInfo, logWarn } from '../utils/logger';
+import { logError, logInfo, logWarn } from '../utils/logger';
+import { sendError } from '../utils/http';
 
 const googleClient = new OAuth2Client(config.auth.googleClientId);
+const MIN_AUTH_RESPONSE_MS = 300;
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 const generateToken = (userId: string, email: string, role: string) => {
     return jwt.sign(
@@ -23,18 +26,30 @@ const generateVerificationToken = (): string => {
     return crypto.randomBytes(32).toString('hex');
 };
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const enforceMinimumResponseTime = async (startedAt: number) => {
+    const remaining = MIN_AUTH_RESPONSE_MS - (Date.now() - startedAt);
+    if (remaining > 0) {
+        await wait(remaining);
+    }
+};
+
+const isStrongPassword = (password: string) => STRONG_PASSWORD_REGEX.test(password);
+const passwordRequirementsMessage = 'Password must be at least 8 characters and include uppercase, lowercase, and a number.';
+
 // REGISTER (Email/Password)
 export const register = async (req: Request, res: Response) => {
     try {
         const { email, password, role } = req.body;
 
         if (!email || !password) {
-            res.status(400).json({ error: 'Email and password are required' });
+            sendError(res, 400, 'AUTH_FIELDS_REQUIRED', 'Email and password are required');
             return;
         }
 
-        if (password.length < 6) {
-            res.status(400).json({ error: 'Password must be at least 6 characters' });
+        if (!isStrongPassword(password)) {
+            sendError(res, 400, 'WEAK_PASSWORD', passwordRequirementsMessage);
             return;
         }
 
@@ -45,7 +60,7 @@ export const register = async (req: Request, res: Response) => {
                 assignedRole = 'RECRUITER';
             } else if (role !== 'USER') {
                 logWarn('Invalid role requested during registration', { email, role });
-                res.status(400).json({ error: 'Invalid role selected' });
+                sendError(res, 400, 'INVALID_ROLE', 'Invalid role selected');
                 return;
             }
         }
@@ -54,7 +69,7 @@ export const register = async (req: Request, res: Response) => {
         const existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) {
             logInfo('Registration attempt failed: User already exists', { email });
-            res.status(400).json({ error: 'User with this email already exists' });
+            sendError(res, 400, 'USER_ALREADY_EXISTS', 'User with this email already exists');
             return;
         }
 
@@ -97,11 +112,11 @@ export const register = async (req: Request, res: Response) => {
 
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
             if (error.code === 'P2002') {
-                res.status(400).json({ error: 'A user with this email already exists' });
+                sendError(res, 400, 'USER_ALREADY_EXISTS', 'A user with this email already exists');
                 return;
             }
         }
-        res.status(500).json({ error: 'Registration failed. Please try again later.' });
+        sendError(res, 500, 'REGISTER_FAILED', 'Registration failed. Please try again later.');
     }
 };
 
@@ -111,7 +126,7 @@ export const login = async (req: Request, res: Response) => {
         const { email, password } = req.body;
 
         if (!email || !password) {
-            res.status(400).json({ error: 'Email and password are required' });
+            sendError(res, 400, 'AUTH_FIELDS_REQUIRED', 'Email and password are required');
             return;
         }
 
@@ -120,7 +135,7 @@ export const login = async (req: Request, res: Response) => {
         // Generic error message for security
         const invalidCredentials = () => {
             logInfo('Login failed: Invalid credentials', { email });
-            res.status(401).json({ error: 'Invalid email or password' });
+            sendError(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
         };
 
         if (!user || !user.password) {
@@ -137,11 +152,13 @@ export const login = async (req: Request, res: Response) => {
         // Check email verification
         if (!user.isEmailVerified) {
             logInfo('Login blocked: Email not verified', { userId: user.id });
-            res.status(403).json({
-                error: 'Please verify your email before logging in',
-                requiresVerification: true,
-                email: user.email,
-            });
+            sendError(
+                res,
+                403,
+                'EMAIL_VERIFICATION_REQUIRED',
+                'Please verify your email before logging in',
+                { requiresVerification: true, email: user.email }
+            );
             return;
         }
 
@@ -173,7 +190,7 @@ export const login = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'login' });
-        res.status(500).json({ error: 'Login failed. Please try again later.' });
+        sendError(res, 500, 'LOGIN_FAILED', 'Login failed. Please try again later.');
     }
 };
 
@@ -183,7 +200,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
         const { token } = req.query;
 
         if (!token || typeof token !== 'string') {
-            res.status(400).json({ error: 'Invalid verification token' });
+            sendError(res, 400, 'INVALID_VERIFICATION_TOKEN', 'Invalid verification token');
             return;
         }
 
@@ -192,12 +209,12 @@ export const verifyEmail = async (req: Request, res: Response) => {
         });
 
         if (!user) {
-            res.status(400).json({ error: 'Invalid or expired verification token' });
+            sendError(res, 400, 'INVALID_VERIFICATION_TOKEN', 'Invalid or expired verification token');
             return;
         }
 
         if (user.verificationExpiry && user.verificationExpiry < new Date()) {
-            res.status(400).json({ error: 'Verification token has expired. Please request a new one.' });
+            sendError(res, 400, 'VERIFICATION_TOKEN_EXPIRED', 'Verification token has expired. Please request a new one.');
             return;
         }
 
@@ -215,66 +232,65 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'verifyEmail' });
-        res.status(500).json({ error: 'Email verification failed.' });
+        sendError(res, 500, 'VERIFY_EMAIL_FAILED', 'Email verification failed.');
     }
 };
 
 // RESEND VERIFICATION EMAIL
 export const resendVerification = async (req: Request, res: Response) => {
+    const startedAt = Date.now();
+
     try {
         const { email } = req.body;
 
         if (!email) {
-            res.status(400).json({ error: 'Email is required' });
+            sendError(res, 400, 'EMAIL_REQUIRED', 'Email is required');
             return;
         }
 
         const user = await prisma.user.findUnique({ where: { email } });
 
         if (!user) {
-            // Don't reveal if user exists
             logInfo('Resend verification asked for non-existent email', { email });
-            res.json({ message: 'If an account exists, a verification email has been sent.' });
-            return;
-        }
+        } else if (!user.isEmailVerified) {
+            const verificationToken = generateVerificationToken();
+            const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-        if (user.isEmailVerified) {
-            res.status(400).json({ error: 'Email is already verified' });
-            return;
-        }
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    verificationToken,
+                    verificationExpiry,
+                }
+            });
 
-        const verificationToken = generateVerificationToken();
-        const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-        await prisma.user.update({
-            where: { id: user.id },
-            data: {
-                verificationToken,
-                verificationExpiry,
+            const emailResult = await sendVerificationEmail(email, verificationToken);
+            if (!emailResult.success) {
+                throw new Error(`Failed to send email: ${emailResult.error}`);
             }
-        });
 
-        const emailResult = await sendVerificationEmail(email, verificationToken);
-        if (!emailResult.success) {
-            throw new Error(`Failed to send email: ${emailResult.error}`);
+            logInfo('Verification email resent', { userId: user.id });
         }
 
-        logInfo('Verification email resent', { userId: user.id });
+        await enforceMinimumResponseTime(startedAt);
         res.json({ message: 'If an account exists, a verification email has been sent.' });
 
     } catch (error) {
         logError(error as Error, { context: 'resendVerification' });
-        res.status(500).json({ error: 'Failed to resend verification email.' });
+        await enforceMinimumResponseTime(startedAt);
+        sendError(res, 500, 'RESEND_VERIFICATION_FAILED', 'Failed to resend verification email.');
     }
 };
 
 // FORGOT PASSWORD
 export const forgotPassword = async (req: Request, res: Response) => {
+    const startedAt = Date.now();
+
     try {
         const { email } = req.body;
 
         if (!email) {
-            res.status(400).json({ error: 'Email is required' });
+            sendError(res, 400, 'EMAIL_REQUIRED', 'Email is required');
             return;
         }
 
@@ -282,6 +298,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
         // Always respond with the same message to prevent email enumeration
         if (!user || !user.password) {
+            await enforceMinimumResponseTime(startedAt);
             res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
             return;
         }
@@ -300,11 +317,13 @@ export const forgotPassword = async (req: Request, res: Response) => {
         }
 
         logInfo('Password reset requested', { userId: user.id });
+        await enforceMinimumResponseTime(startedAt);
         res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
 
     } catch (error) {
         logError(error as Error, { context: 'forgotPassword' });
-        res.status(500).json({ error: 'Failed to process password reset request.' });
+        await enforceMinimumResponseTime(startedAt);
+        sendError(res, 500, 'FORGOT_PASSWORD_FAILED', 'Failed to process password reset request.');
     }
 };
 
@@ -314,24 +333,24 @@ export const resetPassword = async (req: Request, res: Response) => {
         const { token, newPassword } = req.body;
 
         if (!token || !newPassword) {
-            res.status(400).json({ error: 'Token and new password are required' });
+            sendError(res, 400, 'RESET_FIELDS_REQUIRED', 'Token and new password are required');
             return;
         }
 
-        if (newPassword.length < 6) {
-            res.status(400).json({ error: 'Password must be at least 6 characters' });
+        if (!isStrongPassword(newPassword)) {
+            sendError(res, 400, 'WEAK_PASSWORD', passwordRequirementsMessage);
             return;
         }
 
         const user = await prisma.user.findUnique({ where: { resetToken: token } });
 
         if (!user || !user.resetExpiry) {
-            res.status(400).json({ error: 'Invalid or expired reset token' });
+            sendError(res, 400, 'INVALID_RESET_TOKEN', 'Invalid or expired reset token');
             return;
         }
 
         if (user.resetExpiry < new Date()) {
-            res.status(400).json({ error: 'Reset token has expired. Please request a new one.' });
+            sendError(res, 400, 'RESET_TOKEN_EXPIRED', 'Reset token has expired. Please request a new one.');
             return;
         }
 
@@ -351,7 +370,7 @@ export const resetPassword = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'resetPassword' });
-        res.status(500).json({ error: 'Failed to reset password.' });
+        sendError(res, 500, 'RESET_PASSWORD_FAILED', 'Failed to reset password.');
     }
 };
 
@@ -362,13 +381,13 @@ export const googleAuth = async (req: Request, res: Response) => {
 
         if (!credential) {
             logWarn('Google Auth attempt without credential');
-            res.status(400).json({ error: 'No Google credential provided' });
+            sendError(res, 400, 'GOOGLE_CREDENTIAL_REQUIRED', 'No Google credential provided');
             return;
         }
 
         if (!config.auth.googleClientId) {
             logError(new Error('GOOGLE_CLIENT_ID is not configured on the server'));
-            res.status(500).json({ error: 'Server configuration error' });
+            sendError(res, 500, 'SERVER_CONFIGURATION_ERROR', 'Server configuration error');
             return;
         }
 
@@ -379,7 +398,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
         const payload = ticket.getPayload();
         if (!payload || !payload.email) {
-            res.status(400).json({ error: 'Invalid Google Token' });
+            sendError(res, 400, 'INVALID_GOOGLE_TOKEN', 'Invalid Google Token');
             return;
         }
 
@@ -397,13 +416,23 @@ export const googleAuth = async (req: Request, res: Response) => {
             });
             logInfo('New user registered via Google', { userId: user.id });
         } else if (!user.googleId) {
-            // Link Google Account to existing email and verify
+            if (!user.isEmailVerified) {
+                sendError(
+                    res,
+                    403,
+                    'EMAIL_VERIFICATION_REQUIRED',
+                    'Please verify your email before linking Google Sign-In',
+                    { requiresVerification: true, email: user.email }
+                );
+                return;
+            }
+
+            // Link Google account to an existing verified email.
             user = await prisma.user.update({
                 where: { id: user.id },
                 data: {
                     googleId: payload.sub,
                     avatar: payload.picture,
-                    isEmailVerified: true, // Verify on Google link
                 }
             });
             logInfo('Existing user linked Google account', { userId: user.id });
@@ -435,10 +464,13 @@ export const googleAuth = async (req: Request, res: Response) => {
 
     } catch (error) {
         logError(error as Error, { context: 'googleAuth' });
-        res.status(500).json({
-            error: 'Google Auth Failed',
-            details: process.env.NODE_ENV !== 'production' ? (error as Error).message : undefined
-        });
+        sendError(
+            res,
+            500,
+            'GOOGLE_AUTH_FAILED',
+            'Google Auth Failed',
+            process.env.NODE_ENV !== 'production' ? { details: (error as Error).message } : undefined
+        );
     }
 };
 
@@ -451,12 +483,12 @@ export const getMe = async (req: Request, res: Response) => {
             select: { id: true, email: true, role: true, isPremium: true, twoFactorEnabled: true, avatar: true },
         });
         if (!user) {
-            res.status(404).json({ error: 'User not found' });
+            sendError(res, 404, 'USER_NOT_FOUND', 'User not found');
             return;
         }
         res.json(user);
     } catch (error) {
         logError(error as Error, { context: 'getMe' });
-        res.status(500).json({ error: 'Failed to fetch user' });
+        sendError(res, 500, 'AUTH_ME_FAILED', 'Failed to fetch user');
     }
 };

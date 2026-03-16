@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { logError } from '../utils/logger';
 import { notifyResumeViewed } from '../services/notification.service';
+import { parsePaginationValue, parsePositiveInt } from '../utils/request';
+import { sendError } from '../utils/http';
+import { startOfUtcDay } from '../utils/dates';
 
 // GET /api/recruiter/search
 // Search public resumes by query (matches job title, skills, or location in content)
@@ -9,12 +12,8 @@ export const searchResumes = async (req: Request, res: Response) => {
     try {
         const { q, page = '1', limit = '10' } = req.query;
         const searchQuery = (q as string) || '';
-        const pageNum = parseInt(page as string);
-        const limitNum = parseInt(limit as string);
-        const skip = (pageNum - 1) * limitNum;
-
-        const normalizedLimit = Number.isFinite(limitNum) && limitNum > 0 ? limitNum : 10;
-        const normalizedPage = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : 1;
+        const normalizedPage = parsePositiveInt(page, 1);
+        const normalizedLimit = parsePaginationValue(limit, 10);
         const normalizedSkip = (normalizedPage - 1) * normalizedLimit;
 
         // We want recruiter search to work across *all* public CV data.
@@ -23,7 +22,7 @@ export const searchResumes = async (req: Request, res: Response) => {
         const search = searchQuery.trim();
         const pattern = `%${search}%`;
 
-        let rows: Array<{ id: string; shareKey: string | null; title: string; content: any; updatedAt: Date; userEmail: string }> = [];
+        let rows: Array<{ id: string; shareKey: string | null; title: string; content: any; updatedAt: Date }> = [];
         let total = 0;
 
         if (search.length > 0) {
@@ -33,10 +32,8 @@ export const searchResumes = async (req: Request, res: Response) => {
                            r."shareKey",
                            r.title,
                            r.content,
-                           r."updatedAt",
-                           u.email AS "userEmail"
+                           r."updatedAt"
                     FROM "Resume" r
-                    JOIN "User" u ON u.id = r."userId"
                     WHERE r."isPublic" = true
                       AND (r.title ILIKE ${pattern} OR r.content::text ILIKE ${pattern})
                     ORDER BY r."updatedAt" DESC
@@ -59,24 +56,16 @@ export const searchResumes = async (req: Request, res: Response) => {
                     skip: normalizedSkip,
                     take: normalizedLimit,
                     orderBy: { updatedAt: 'desc' },
-                    include: {
-                        user: {
-                            select: {
-                                email: true,
-                            },
-                        },
-                    },
                 }),
                 prisma.resume.count({ where: { isPublic: true } }),
             ]);
 
-            rows = resumes.map((r) => ({
+            rows = resumes.map((r: (typeof resumes)[number]) => ({
                 id: r.id,
                 shareKey: r.shareKey,
                 title: r.title,
                 content: r.content,
                 updatedAt: r.updatedAt,
-                userEmail: r.user.email,
             }));
             total = count;
         }
@@ -84,6 +73,7 @@ export const searchResumes = async (req: Request, res: Response) => {
         const results = rows.map((r) => {
             const content: any = r.content;
             const profile = content?.profile || {};
+            const summary = String(profile.summary || '');
             return {
                 id: r.id,
                 shareKey: r.shareKey,
@@ -91,9 +81,8 @@ export const searchResumes = async (req: Request, res: Response) => {
                 fullName: profile.fullName || 'Anonymous',
                 jobTitle: profile.jobTitle || 'Job Seeker',
                 location: profile.location || '',
-                summary: profile.summary ? String(profile.summary).substring(0, 150) + '...' : '',
+                summary: summary.length > 150 ? `${summary.substring(0, 150)}...` : summary,
                 updatedAt: r.updatedAt,
-                userEmail: r.userEmail,
             };
         });
 
@@ -108,7 +97,7 @@ export const searchResumes = async (req: Request, res: Response) => {
         });
     } catch (error) {
         logError(error as Error, { context: 'searchResumes' });
-        res.status(500).json({ error: 'Failed to search resumes' });
+        sendError(res, 500, 'RECRUITER_SEARCH_FAILED', 'Failed to search resumes');
     }
 };
 
@@ -119,7 +108,7 @@ export const getPublicResume = async (req: Request, res: Response) => {
         const { shareKey } = req.params as { shareKey: string };
 
         if (!shareKey) {
-            res.status(400).json({ error: 'Share key is required' });
+            sendError(res, 400, 'SHARE_KEY_REQUIRED', 'Share key is required');
             return;
         }
 
@@ -132,24 +121,47 @@ export const getPublicResume = async (req: Request, res: Response) => {
         });
 
         if (!resume) {
-            res.status(404).json({ error: 'Resume not found or is private' });
+            sendError(res, 404, 'PUBLIC_RESUME_NOT_FOUND', 'Resume not found or is private');
             return;
         }
 
-        // Increment view count (fire-and-forget)
-        prisma.resume.update({
-            where: { id: resume.id },
-            data: { viewCount: { increment: 1 }, lastViewedAt: new Date() },
-        }).catch(() => {});
+        const viewedAt = new Date();
+        const updatedResume = await prisma.$transaction(async (tx) => {
+            const nextResume = await tx.resume.update({
+                where: { id: resume.id },
+                data: { viewCount: { increment: 1 }, lastViewedAt: viewedAt },
+            });
+
+            await tx.resumeDailyViewStat.upsert({
+                where: {
+                    resumeId_day: {
+                        resumeId: resume.id,
+                        day: startOfUtcDay(viewedAt),
+                    },
+                },
+                update: {
+                    viewCount: { increment: 1 },
+                },
+                create: {
+                    resumeId: resume.id,
+                    day: startOfUtcDay(viewedAt),
+                    viewCount: 1,
+                },
+            });
+
+            return nextResume;
+        });
 
         // Notify resume owner (fire-and-forget)
-        notifyResumeViewed(resume.id, resume.viewCount + 1).catch(() => {});
+        notifyResumeViewed(resume.id, updatedResume.viewCount).catch((error: unknown) => {
+            logError(error as Error, { context: 'notifyResumeViewed', resumeId: resume.id });
+        });
 
         // Return the full content for rendering
         res.json(resume);
 
     } catch (error) {
         logError(error as Error, { context: 'getPublicResume' });
-        res.status(500).json({ error: 'Failed to fetch public resume' });
+        sendError(res, 500, 'PUBLIC_RESUME_FETCH_FAILED', 'Failed to fetch public resume');
     }
 };
